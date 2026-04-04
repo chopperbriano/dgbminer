@@ -31,24 +31,23 @@
 *.out
 *.app
 
-# Visual Studio build output
+# CMake build output
+/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+
+# Visual Studio editor/debug artifacts
 .vs/
-x64/
-Debug/
-Release/
 *.pdb
 *.idb
 *.ilk
 *.ipch
-*.tlog
-*.lastbuildstate
 *.log
 *.user
 
-# Autotools build output
-autom4te.cache/
-config.log
-config.status
-Makefile.in
-Makefile
-aclocal.m4
+# Keep prebuilt third-party libs under compat/lib/
+!compat/lib/**/*.lib
+!compat/lib/**/*.dll
+!compat/lib/**/*.a
