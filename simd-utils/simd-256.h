@@ -97,9 +97,13 @@ typedef union
 
 static inline __m256i mm256_neg1_fn()
 {
+#if defined(__GNUC__) && !defined(__clang__)
    __m256i v;
    asm( "vpcmpeqq %0, %0, %0\n\t" : "=x"(v) );
    return v;
+#else
+   return _mm256_set1_epi32( -1 );
+#endif
 }
 #define m256_neg1  mm256_neg1_fn()
 

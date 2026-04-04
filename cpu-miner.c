@@ -69,7 +69,7 @@
 #endif
 
 #define CURL_STATICLIB 1
-#pragma comment(lib, "libcurl.dll.a")
+// libcurl is linked via CMake (libcurl_a.lib in compat/lib/x64)
 
 //#ifndef size_t
 //typedef unsigned int     size_t;

@@ -126,9 +126,13 @@ static inline __m512i mm512_perm_128( const __m512i v, const int c )
 // use asm to avoid compiler warning for unitialized local
 static inline __m512i mm512_neg1_fn()
 {
+#if defined(__GNUC__) && !defined(__clang__)
    __m512i v;
    asm( "vpternlogq $0xff, %0, %0, %0\n\t" : "=x"(v) );
    return v;
+#else
+   return _mm512_set1_epi32( -1 );
+#endif
 }
 #define m512_neg1 mm512_neg1_fn()    
 

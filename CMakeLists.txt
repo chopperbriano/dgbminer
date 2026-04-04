@@ -86,9 +86,10 @@ target_compile_definitions(dgbminer PRIVATE
     _WINSOCK_DEPRECATED_NO_WARNINGS
     CURL_STATICLIB
     __SSE2__
-    __AVX__
-    __AVX2__
     NOMINMAX
+    # Note: the AVX2/AVX-512 code paths in this codebase were never actually
+    # compiled (original vcxproj only set __SSE2__). They have missing
+    # includes and will not build. Stick to SSE2 baseline.
 )
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,7 @@ if(MSVC)
         /MP                 # parallel compilation
         /EHsc               # C++ exceptions
         /Zc:__cplusplus     # correct __cplusplus macro
+        /FI${CMAKE_CURRENT_SOURCE_DIR}/compat.h  # force-include for __attribute__ no-op
     )
     # Release-only perf flags
     target_compile_options(dgbminer PRIVATE
@@ -108,7 +110,6 @@ if(MSVC)
         $<$<CONFIG:Release>:/Ob2>         # aggressive inlining
         $<$<CONFIG:Release>:/Oy>          # omit frame pointers
         $<$<CONFIG:Release>:/GL>          # whole program optimization
-        $<$<CONFIG:Release>:/arch:AVX2>   # enable AVX2 codegen
         $<$<CONFIG:Release>:/fp:fast>     # fast floating point
         $<$<CONFIG:Release>:/Gy>          # function-level linking
     )

@@ -7,6 +7,16 @@
  #define WINDOWS_CPU_GROUPS_ENABLED 1
 #endif
 
+// Prevent windows.h from pulling in winsock.h, which conflicts with the
+// winsock2.h that libcurl and this project need.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_   // stops windows.h including winsock.h
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <time.h>
 
@@ -47,7 +57,9 @@ static __inline int setpriority(int which, int who, int prio)
 }
 
 #ifdef _MSC_VER
+#if _MSC_VER < 1900  // VS 2015+ has a real snprintf
 #define snprintf(...) _snprintf(__VA_ARGS__)
+#endif
 #define strdup(...) _strdup(__VA_ARGS__)
 #define strncasecmp(x,y,z) _strnicmp(x,y,z)
 #define strcasecmp(x,y) _stricmp(x,y)
@@ -57,6 +69,7 @@ static __inline int setpriority(int which, int who, int prio)
 typedef int ssize_t;
 
 #include <stdlib.h>
+#include <stdio.h>
 // This static var is made to be compatible with linux/mingw (no free on string result)
 // This is not thread safe but we only use that once on process start
 static char dirname_buffer[_MAX_PATH] = { 0 };
@@ -77,6 +90,14 @@ static __inline char * dirname(char *file) {
 
 #ifndef _MSC_VER
 #define _ALIGN(x) __attribute__ ((aligned(x)))
+#endif
+
+// Swallow GCC __attribute__ / __attribute on MSVC (MSVC has no equivalent for
+// most of these; alignment-critical sites use _ALIGN()/__declspec(align)
+// explicitly. See tools that rewrite aligned(N) suffixes into _ALIGN prefix.)
+#if defined(_MSC_VER) && !defined(__GNUC__) && !defined(__clang__)
+#define __attribute__(x)
+#define __attribute(x)
 #endif
 
 #undef unlikely

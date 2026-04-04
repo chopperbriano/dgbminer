@@ -59,7 +59,7 @@ typedef union
 static inline __m128i mm128_mov64_128( const uint64_t n )
 {
   __m128i a;
-#if defined(__AVX__)
+#if defined(__AVX__) && defined(__GNUC__) && !defined(__clang__)
   asm( "vmovq %1, %0\n\t" : "=x"(a) : "r"(n) );
 #else
   //asm( "movq %1, %0\n\t" : "=x"(a) : "r"(n) );
@@ -71,7 +71,7 @@ static inline __m128i mm128_mov64_128( const uint64_t n )
 static inline __m128i mm128_mov32_128( const uint32_t n )
 {
   __m128i a;
-#if defined(__AVX__)
+#if defined(__AVX__) && defined(__GNUC__) && !defined(__clang__)
   asm( "vmovd %1, %0\n\t" : "=x"(a) : "r"(n) );
 #else  
 //  asm( "movd %1, %0\n\t" : "=x"(a) : "r"(n) );
@@ -107,7 +107,7 @@ static __m128i mm128_neg1_fn()
 {
     __m128i g_a;
 
-#if defined(__AVX__) 
+#if defined(__AVX__) && defined(__GNUC__) && !defined(__clang__)
    asm( "vpcmpeqq %0, %0, %0\n\t" : "=x"(a) );
 #else
 //   asm( "pcmpeqq %0, %0\n\t" : "=x"(a) );
