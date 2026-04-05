@@ -348,10 +348,21 @@ void get_currentalgo(char* buf, int sz)
 	snprintf(buf, sz, "%s", algo_names[opt_algo]);
 }
 
+#if defined(WIN32)
+// Storage + forward declarations for the sticky status header
+// (functions are defined near main()).
+static double g_last_hashrate     = 0.0;
+static char   g_last_hr_units[4]  = {0};
+static BOOL   g_status_mode       = FALSE;
+static void reset_status_region(void);
+static void paint_status_header(void);
+#endif
+
 void proper_exit(int reason)
 {
    if (opt_debug) applog(LOG_INFO,"Program exit");
 #ifdef WIN32
+   reset_status_region();
 	if (opt_background) {
 		HWND hcon = GetConsoleWindow();
 		if (hcon) {
@@ -1114,6 +1125,13 @@ void report_summary_log( BOOL  force )
    scale_hash_for_display( &ghrate, ghr_units );
    scale_hash_for_display( &sess_hrate, sess_hr_units );
 
+#if defined(WIN32)
+   // Cache for the sticky status header (top of screen).
+   g_last_hashrate = ghrate;
+   strncpy( g_last_hr_units, ghr_units, sizeof g_last_hr_units - 1 );
+   g_last_hr_units[ sizeof g_last_hr_units - 1 ] = 0;
+#endif
+
    sprintf_et( et_str, et.tv_sec );
    sprintf_et( upt_str, uptime.tv_sec );
 
@@ -1188,6 +1206,10 @@ void report_summary_log( BOOL  force )
          applog2( LOG_INFO, CL_LBL
                   "Count mismatch, submitted share may still be pending" CL_N );
    }
+
+#if defined(WIN32)
+   paint_status_header();
+#endif
 }
 
 static int share_result( int result, struct work *work,
@@ -3631,6 +3653,8 @@ static int thread_create(struct thr_info *thr, void* func)
 void get_defconfig_path(char *out, size_t bufsize, char *argv0);
 
 #if defined(WIN32)
+#include <conio.h>
+
 // Enable native VT100/ANSI escape processing on Windows 10+ consoles so the
 // ANSI color codes embedded in log lines (CL_GRN / CL_RED / CL_CYN / etc.)
 // render as actual colors instead of being stripped by the legacy 2008-era
@@ -3652,7 +3676,151 @@ static void enable_windows_vt_mode(void)
     // render correctly (current banner is pure ASCII so this is harmless).
     SetConsoleOutputCP(65001);
 }
-#endif
+
+/* --------------------------------------------------------------------------
+ * top(1)-style sticky status header (Level 2).
+ *
+ * Reserves the first STATUS_ROWS lines of the terminal for a status block
+ * that is repainted at each periodic report. Log output scrolls below that,
+ * inside a DECSTBM-defined scroll region. A background thread watches for
+ * 'q' / 'Q' and triggers a clean exit.
+ * -------------------------------------------------------------------------- */
+
+#define STATUS_ROWS 5
+
+// g_last_hashrate / g_last_hr_units / g_status_mode are declared near
+// proper_exit() so report_summary_log() and proper_exit() can see them.
+
+static void setup_status_region(void)
+{
+    // Clear screen, home cursor.
+    printf("\033[2J\033[H");
+    // Set DECSTBM scroll region: top = STATUS_ROWS+2, bottom = end of screen.
+    printf("\033[%d;r", STATUS_ROWS + 2);
+    // Move cursor to just below the status block so log lines start there.
+    printf("\033[%d;1H", STATUS_ROWS + 2);
+    fflush(stdout);
+    g_status_mode = TRUE;
+}
+
+static void reset_status_region(void)
+{
+    if (!g_status_mode) return;
+    // Reset scroll region to full screen and move cursor to bottom.
+    printf("\033[r\n");
+    fflush(stdout);
+    g_status_mode = FALSE;
+}
+
+// Format seconds as e.g. "3h 17m 42s" / "17m 42s" / "42s"
+static void fmt_uptime(char *buf, size_t n, long secs)
+{
+    long h = secs / 3600;
+    long m = (secs % 3600) / 60;
+    long s = secs % 60;
+    if (h) snprintf(buf, n, "%ldh %02ldm %02lds", h, m, s);
+    else if (m) snprintf(buf, n, "%ldm %02lds", m, s);
+    else snprintf(buf, n, "%lds", s);
+}
+
+static void paint_status_header(void)
+{
+    extern struct   timeval session_start;
+    extern BOOL  opt_quiet;
+    struct timeval now, uptime_tv;
+    char upt[32];
+    long accepted_pct = 0;
+    const char *algo_name = algo_names[opt_algo] ? algo_names[opt_algo] : "?";
+    const char *url       = rpc_url ? rpc_url : "(none)";
+
+    if (!g_status_mode) return;
+
+    gettimeofday(&now, NULL);
+    if (session_start.tv_sec == 0) {
+        // Miner hasn't started yet (still in option parsing / setup).
+        snprintf(upt, sizeof upt, "--");
+    } else {
+        timeval_subtract(&uptime_tv, &now, &session_start);
+        fmt_uptime(upt, sizeof upt, uptime_tv.tv_sec);
+    }
+
+    if (submitted_share_count > 0)
+        accepted_pct = (100 * accepted_share_count) / submitted_share_count;
+
+    pthread_mutex_lock(&applog_lock);
+
+    // Save cursor, home, paint 5 rows (clearing each to EOL), restore cursor.
+    printf("\033[s");
+    printf("\033[1;1H");
+    // row 1
+    printf("\033[K" CL_CYN
+           "+------------------------------------------------------------------+"
+           CL_WHT "\n");
+    // row 2 - title + algo + uptime + quit hint
+    printf("\033[K" CL_CYN "|" CL_WHT
+           " " CL_GRN "dgbminer for Windows 1.0" CL_WHT
+           "  [" CL_YL2 "%-8s" CL_WHT "]"
+           "  Up: %-12s"
+           "  " CL_YL2 "Press 'Q' to quit" CL_WHT
+           "   " CL_CYN "|" CL_WHT "\n",
+           algo_name, upt);
+    // row 3 - hash rate + share counts
+    printf("\033[K" CL_CYN "|" CL_WHT
+           " Hash: " CL_GRN "%6.2f %-2sh/s" CL_WHT
+           "   Submitted: %-5u"
+           "  " CL_GRN "Acc: %-5u" CL_WHT
+           "  " CL_RED "Rej: %-5u" CL_WHT
+           " (%3ld%%)     " CL_CYN "|" CL_WHT "\n",
+           g_last_hashrate, g_last_hr_units,
+           (unsigned)submitted_share_count,
+           (unsigned)accepted_share_count,
+           (unsigned)rejected_share_count,
+           accepted_pct);
+    // row 4 - pool url + blocks solved
+    {
+        char url_trunc[56];
+        size_t url_len = strlen(url);
+        if (url_len > 55) {
+            snprintf(url_trunc, sizeof url_trunc, "%.52s...", url);
+        } else {
+            snprintf(url_trunc, sizeof url_trunc, "%s", url);
+        }
+        printf("\033[K" CL_CYN "|" CL_WHT
+               " Pool: %-55s  Solved: " CL_LMA "%-4u" CL_WHT
+               "   " CL_CYN "|" CL_WHT "\n",
+               url_trunc, (unsigned)solved_block_count);
+    }
+    // row 5
+    printf("\033[K" CL_CYN
+           "+------------------------------------------------------------------+"
+           CL_WHT "\n");
+
+    printf("\033[u");
+    fflush(stdout);
+
+    pthread_mutex_unlock(&applog_lock);
+    (void)opt_quiet;
+}
+
+static void *keyboard_watcher_thread(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        if (_kbhit()) {
+            int ch = _getch();
+            if (ch == 'q' || ch == 'Q') {
+                reset_status_region();
+                applog(LOG_NOTICE, "'q' pressed, exiting");
+                proper_exit(0);
+                return NULL;
+            }
+        }
+        Sleep(100);
+    }
+    return NULL;
+}
+
+#endif /* WIN32 */
 
 int main(int argc, char *argv[])
 {
@@ -3667,6 +3835,19 @@ int main(int argc, char *argv[])
 	pthread_mutex_init(&applog_lock, NULL);
 
 	show_credits();
+
+#if defined(WIN32)
+	{
+		// Reserve top STATUS_ROWS lines for the sticky status header, scroll
+		// the rest of the terminal for log output, and start the keyboard
+		// watcher that listens for 'q' / 'Q'.
+		pthread_t kbd_thr;
+		setup_status_region();
+		paint_status_header();
+		pthread_create(&kbd_thr, NULL, keyboard_watcher_thread, NULL);
+		pthread_detach(kbd_thr);
+	}
+#endif
 
 	rpc_user = strdup("");
 	rpc_pass = strdup("");

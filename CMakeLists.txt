@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(dgbminer LANGUAGES C CXX)
+project(dgbminer_windows LANGUAGES C CXX)
 
 # Windows x64 only
 if(NOT WIN32)
@@ -77,6 +77,7 @@ set(DGB_SOURCES
 )
 
 add_executable(dgbminer ${DGB_SOURCES})
+set_target_properties(dgbminer PROPERTIES OUTPUT_NAME "DGBMinerWindows")
 
 # ---------------------------------------------------------------------------
 # Includes
