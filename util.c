@@ -154,6 +154,8 @@ void applog2( int prio, const char *fmt, ... )
       fflush(stdout);
       free(f);
       pthread_mutex_unlock(&applog_lock);
+
+      if (post_log_hook) post_log_hook();
    }
    va_end(ap);
 }
@@ -232,9 +234,13 @@ void applog(int prio, const char *fmt, ...)
 		fflush(stdout);
 		free(f);
 		pthread_mutex_unlock(&applog_lock);
+
+		if (post_log_hook) post_log_hook();
 	}
 	va_end(ap);
 }
+
+void (*post_log_hook)(void) = NULL;
 
 void log_sw_err( char* filename, int line_number, char* msg )
 {

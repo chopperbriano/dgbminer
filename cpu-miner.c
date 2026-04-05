@@ -3696,19 +3696,25 @@ static void setup_status_region(void)
 {
     // Clear screen, home cursor.
     printf("\033[2J\033[H");
-    // Set DECSTBM scroll region: log starts after the pinned header.
-    printf("\033[%d;r", LOG_START_ROW);
     fflush(stdout);
     g_status_mode = TRUE;
 
     // Prime the header by painting it at the top once.
     paint_status_header();
+
+    // Hook applog so the header is re-painted at HOME after every log
+    // line is flushed. In legacy consoles (cmd.exe) that do not honor
+    // the DECSTBM scroll region, the screen scrolls up when new lines
+    // push past the bottom; this hook puts the header back on top each
+    // time so it remains visible.
+    post_log_hook = paint_status_header;
 }
 
 static void reset_status_region(void)
 {
     if (!g_status_mode) return;
-    // Reset scroll region to full screen and move cursor to bottom.
+    // Unhook the log repaint and reset scroll region (if any).
+    post_log_hook = NULL;
     printf("\033[r\n");
     fflush(stdout);
     g_status_mode = FALSE;
