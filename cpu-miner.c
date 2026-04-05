@@ -3843,11 +3843,14 @@ static void tui_query_size(void)
 
 // Scroll the log region up by one row, blanking the new bottom row.
 // Paint the sticky header at rows 0..TUI_HEADER_ROWS-1.
+static void tui_dbg(const char *fmt, ...);  /* fwd decl */
+
 static void tui_paint_header(void)
 {
     extern struct timeval session_start;
     extern struct timeval total_hashes_time;
     extern double total_hashes;
+    tui_dbg("HDR start");
     struct timeval now, uptime_tv;
     char upt[24];
     char hr[24];
@@ -4045,7 +4048,33 @@ static void tui_repaint_log(void)
                     (unsigned long)written, plain);
         }
     }
+    // Dump what the console buffer actually looks like at rows 8..log_top+2
+    // so we can see if something is clobbering the top of the log region.
+    {
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        if (GetConsoleScreenBufferInfo(g_con, &csbi)) {
+            tui_dbg("  post: win=(%d,%d)-(%d,%d) cur=(%d,%d)",
+                    csbi.srWindow.Left, csbi.srWindow.Top,
+                    csbi.srWindow.Right, csbi.srWindow.Bottom,
+                    csbi.dwCursorPosition.X, csbi.dwCursorPosition.Y);
+            for (SHORT r = 7; r <= g_log_top + 1 && r < g_term_h; r++) {
+                char readbuf[200];
+                DWORD nread;
+                COORD p; p.X = 0; p.Y = r;
+                ReadConsoleOutputCharacterA(g_con, readbuf,
+                    (DWORD)(g_term_w < 120 ? g_term_w : 120), p, &nread);
+                readbuf[nread] = 0;
+                // trim trailing spaces
+                int e = (int)nread - 1;
+                while (e >= 0 && readbuf[e] == ' ') { readbuf[e] = 0; e--; }
+                tui_dbg("  read row %2d: |%s|", r, readbuf);
+            }
+        }
+    }
 }
+
+// Log every header paint so we can correlate with log repaint timing.
+static void tui_dbg_header(const char *when) { tui_dbg("HDR %s", when); }
 
 // applog writer: append one log line, scroll in place, repaint.
 static void tui_log_writer(const char *line)
