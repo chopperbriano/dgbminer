@@ -77,7 +77,7 @@ set(DGB_SOURCES
 )
 
 add_executable(dgbminer ${DGB_SOURCES})
-set_target_properties(dgbminer PROPERTIES OUTPUT_NAME "DGBMinerWindows")
+set_target_properties(dgbminer PROPERTIES OUTPUT_NAME "dgbminerwindows")
 
 # ---------------------------------------------------------------------------
 # Includes
