@@ -1118,11 +1118,13 @@ void report_summary_log( BOOL  force )
    sprintf_et( upt_str, uptime.tv_sec );
 
    applog( LOG_BLUE, "%s: %s", algo_names[ opt_algo ], rpc_url );
-   applog2( LOG_NOTICE, "Periodic Report     %s        %s", et_str, upt_str );
-   applog2( LOG_INFO, "Share rate        %.2f/min     %.2f/min",
+   applog2( LOG_NOTICE, "%-16s %12s   %12s",
+            "Periodic Report", et_str, upt_str );
+   applog2( LOG_INFO, "%-16s %8.2f/min   %8.2f/min", "Share rate",
             submit_rate, safe_div( (double)submitted_share_count*60.,
               ( (double)uptime.tv_sec + (double)uptime.tv_usec * 1e-6 ), 0. ) );
-   applog2( LOG_INFO, "Hash rate       %7.2f%sh/s   %7.2f%sh/s   (%.2f%sh/s)",
+   applog2( LOG_INFO, "%-16s %7.2f %sh/s   %7.2f %sh/s   (%.2f %sh/s)",
+            "Hash rate",
             shrate, shr_units, sess_hrate, sess_hr_units, ghrate, ghr_units );
 
    if ( accepted_share_count < submitted_share_count )
@@ -1135,20 +1137,20 @@ void report_summary_log( BOOL  force )
       char lghr_units[4] = {0};
       scale_hash_for_display( &lost_shrate, lshr_units );
       scale_hash_for_display( &lost_ghrate, lghr_units );
-      applog2( LOG_INFO, "Lost hash rate  %7.2f%sh/s    %7.2f%sh/s",
+      applog2( LOG_INFO, "%-16s %7.2f %sh/s   %7.2f %sh/s", "Lost hash rate",
                lost_shrate, lshr_units, lost_ghrate, lghr_units );
    }
 
-   applog2( LOG_INFO,"Submitted       %7d      %7d",
+   applog2( LOG_INFO, "%-16s %12d   %12d", "Submitted",
                submits, submitted_share_count );
-   applog2( LOG_INFO, "Accepted        %7d      %7d      %5.1f%%",
+   applog2( LOG_INFO, "%-16s %12d   %12d   %5.1f%%", "Accepted",
                       accepts, accepted_share_count,
-                      100. * safe_div( (double)accepted_share_count, 
-                                       (double)submitted_share_count, 0. ) ); 
+                      100. * safe_div( (double)accepted_share_count,
+                                       (double)submitted_share_count, 0. ) );
    if ( stale_share_count )
    {
       int prio = stales ? LOG_MINR : LOG_INFO;
-      applog2( prio, "Stale           %7d      %7d      %5.1f%%",
+      applog2( prio, "%-16s %12d   %12d   %5.1f%%", "Stale",
                       stales, stale_share_count,
                       100. * safe_div( (double)stale_share_count,
                                        (double)submitted_share_count, 0. ) );
@@ -1156,21 +1158,22 @@ void report_summary_log( BOOL  force )
    if ( rejected_share_count )
    {
       int prio = rejects ? LOG_ERR : LOG_INFO;
-      applog2( prio, "Rejected        %7d      %7d      %5.1f%%",
+      applog2( prio, "%-16s %12d   %12d   %5.1f%%", "Rejected",
                       rejects, rejected_share_count,
                       100. * safe_div( (double)rejected_share_count,
                                        (double)submitted_share_count, 0. ) );
    }
    if ( solved_block_count )
-   {      
+   {
       int prio = solved ? LOG_PINK : LOG_INFO;
-      applog2( prio, "Blocks Solved   %7d      %7d",
+      applog2( prio, "%-16s %12d   %12d", "Blocks Solved",
                solved, solved_block_count );
    }
    if ( stratum_errors )
-      applog2( LOG_INFO, "Stratum resets               %7d", stratum_errors );
+      applog2( LOG_INFO, "%-16s %12s   %12d", "Stratum resets",
+               "", stratum_errors );
 
-   applog2( LOG_INFO, "Hi/Lo Share Diff  %.5g /  %.5g",
+   applog2( LOG_INFO, "%-16s %.5g / %.5g", "Hi/Lo Share Diff",
             highest_share, lowest_share );
 
    int mismatch = submitted_share_count
@@ -3627,11 +3630,39 @@ static int thread_create(struct thr_info *thr, void* func)
 
 void get_defconfig_path(char *out, size_t bufsize, char *argv0);
 
+#if defined(WIN32)
+// Enable native VT100/ANSI escape processing on Windows 10+ consoles so the
+// ANSI color codes embedded in log lines (CL_GRN / CL_RED / CL_CYN / etc.)
+// render as actual colors instead of being stripped by the legacy 2008-era
+// winansi emulator or printed as raw escape sequences. No-op on older
+// Windows where the call fails.
+static void enable_windows_vt_mode(void)
+{
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE h_err = GetStdHandle(STD_ERROR_HANDLE);
+    DWORD mode = 0;
+    if (h_out != INVALID_HANDLE_VALUE && GetConsoleMode(h_out, &mode))
+        SetConsoleMode(h_out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    if (h_err != INVALID_HANDLE_VALUE && GetConsoleMode(h_err, &mode))
+        SetConsoleMode(h_err, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    // Also put the console in UTF-8 so any future Unicode banner chars
+    // render correctly (current banner is pure ASCII so this is harmless).
+    SetConsoleOutputCP(65001);
+}
+#endif
+
 int main(int argc, char *argv[])
 {
 	struct thr_info *thr;
 	long flags;
 	int i, err;
+
+#if defined(WIN32)
+	enable_windows_vt_mode();
+#endif
 
 	pthread_mutex_init(&applog_lock, NULL);
 
