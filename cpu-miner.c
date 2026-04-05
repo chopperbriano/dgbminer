@@ -4129,7 +4129,10 @@ static void tui_init(void)
 
     SetConsoleTitleA("dgbminer for Windows");
 
-    g_tui_debug = fopen("dgbminer_tui.log", "w");
+    // Diagnostic log file disabled. Set DGBMINER_DEBUG=1 in the
+    // environment to re-enable it for troubleshooting.
+    if (getenv("DGBMINER_DEBUG"))
+        g_tui_debug = fopen("dgbminer_tui.log", "w");
     {
         CONSOLE_SCREEN_BUFFER_INFO csbi;
         if (GetConsoleScreenBufferInfo(g_con, &csbi)) {
