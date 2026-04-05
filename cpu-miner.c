@@ -3703,8 +3703,12 @@ static void enable_windows_vt_mode(void)
     HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
     HANDLE h_err = GetStdHandle(STD_ERROR_HANDLE);
     DWORD mode = 0;
-    if (h_out != INVALID_HANDLE_VALUE && GetConsoleMode(h_out, &mode))
-        SetConsoleMode(h_out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    if (h_out != INVALID_HANDLE_VALUE && GetConsoleMode(h_out, &mode)) {
+        mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        mode &= ~ENABLE_WRAP_AT_EOL_OUTPUT;  // prevent long writes from
+                                             // wrapping into pinned rows
+        SetConsoleMode(h_out, mode);
+    }
     if (h_err != INVALID_HANDLE_VALUE && GetConsoleMode(h_err, &mode))
         SetConsoleMode(h_err, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     // Also put the console in UTF-8 so any future Unicode banner chars
@@ -3979,8 +3983,31 @@ static void tui_paint_menu(void)
 static char g_log_buf[TUI_LOG_BUF][TUI_LINE_MAX];
 static int  g_log_count = 0;  // total lines received, wraps via modulo
 
-// Repaint the scrolling log region from the circular buffer with the
-// newest line at the bottom.
+// Strip ANSI escape sequences (ESC[...m / ESC[...K / etc.) out of a
+// string, writing the plain-text result into out (must be dst_max bytes).
+static void strip_ansi(char *out, size_t dst_max, const char *in)
+{
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j + 1 < dst_max; ) {
+        if (in[i] == 0x1B && in[i+1] == '[') {
+            i += 2;
+            while (in[i] && in[i] != 'm' && in[i] != 'K' && in[i] != 'H' &&
+                   in[i] != 'J' && in[i] != 'A' && in[i] != 'B' &&
+                   in[i] != 'C' && in[i] != 'D')
+                i++;
+            if (in[i]) i++;
+        } else {
+            out[j++] = in[i++];
+        }
+    }
+    out[j] = 0;
+}
+
+// Repaint the scrolling log region from the circular buffer using
+// WriteConsoleOutputCharacterA: writes plain chars at an exact (x,y)
+// position, does not move the cursor, does not wrap at EOL, and does
+// not interpret escape sequences. This is the only robust way to paint
+// a region of the Win32 console without touching pinned rows.
 static void tui_repaint_log(void)
 {
     int visible = g_log_bottom - g_log_top + 1;
@@ -3992,9 +4019,13 @@ static void tui_repaint_log(void)
         tui_clear_row(row);
         int idx = start + i;
         if (idx < g_log_count) {
-            const char *s = g_log_buf[idx % TUI_LOG_BUF];
-            tui_goto(0, row);
-            tui_writef("%s" CL_N, s);
+            char plain[TUI_LINE_MAX];
+            strip_ansi(plain, sizeof plain, g_log_buf[idx % TUI_LOG_BUF]);
+            DWORD written;
+            COORD pos; pos.X = 0; pos.Y = row;
+            DWORD n = (DWORD)strlen(plain);
+            if (n > (DWORD)g_term_w) n = (DWORD)g_term_w;
+            WriteConsoleOutputCharacterA(g_con, plain, n, pos, &written);
         }
     }
 }
