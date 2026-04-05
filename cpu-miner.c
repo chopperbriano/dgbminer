@@ -3751,6 +3751,14 @@ static void enable_windows_vt_mode(void)
     DWORD mode = 0;
     if (h_out != INVALID_HANDLE_VALUE && GetConsoleMode(h_out, &mode)) {
         mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+#ifndef DISABLE_NEWLINE_AUTO_RETURN
+#define DISABLE_NEWLINE_AUTO_RETURN 0x0008
+#endif
+        // DISABLE_NEWLINE_AUTO_RETURN: \n in a WriteConsoleA stream just
+        // goes down one line, no implicit CR, no scroll when at bottom.
+        // Prevents our absolute-positioned log writes from auto-scrolling
+        // the window (which would push the pinned header off the top).
+        mode |= DISABLE_NEWLINE_AUTO_RETURN;
         mode &= ~ENABLE_WRAP_AT_EOL_OUTPUT;  // prevent long writes from
                                              // wrapping into pinned rows
         SetConsoleMode(h_out, mode);
@@ -4097,6 +4105,9 @@ static void tui_repaint_log(void)
     if (visible <= 0) return;
     int start = (g_log_count > visible) ? (g_log_count - visible) : 0;
 
+    tui_dbg("repaint: count=%d visible=%d start=%d top=%d bot=%d",
+            g_log_count, visible, start, g_log_top, g_log_bottom);
+
     // Paint each row via VT cursor positioning. ANSI color codes in the
     // log line are preserved so accept=green / reject=red / block=cyan
     // etc. render as colors.
@@ -4111,6 +4122,7 @@ static void tui_repaint_log(void)
                              "\033[%d;1H\033[2K%s\033[0m", row, line);
             DWORD written;
             WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
+            tui_dbg("  row=%d idx=%d: %.70s", row, idx, line);
         } else {
             int n = snprintf(seq, sizeof seq, "\033[%d;1H\033[2K", row);
             DWORD written;
