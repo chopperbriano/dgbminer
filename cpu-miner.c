@@ -3691,16 +3691,51 @@ static void enable_windows_vt_mode(void)
 // g_last_hashrate / g_last_hr_units / g_status_mode are declared near
 // proper_exit() so report_summary_log() and proper_exit() can see them.
 
+// Query the current console window height (rows). Returns 0 on failure.
+static int get_console_rows(void)
+{
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    if (!GetConsoleScreenBufferInfo(h, &csbi)) return 0;
+    return csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+}
+
+static int g_menu_row = 0;  // cached terminal row for bottom menu bar
+
+static void paint_menu_bar(void)
+{
+    if (!g_status_mode || g_menu_row <= 0) return;
+    pthread_mutex_lock(&applog_lock);
+    printf("\033[s");                            // save cursor
+    printf("\033[%d;1H", g_menu_row);            // move to bottom row
+    printf("\033[K" CL_CY2
+           " [" CL_YL2 "Q" CL_CY2 "] Quit   "
+           "[" CL_YL2 "Ctrl+C" CL_CY2 "] Abort   "
+           "[" CL_YL2 "mining on testnet" CL_CY2 "]"
+           CL_WHT);
+    printf("\033[u");                            // restore cursor
+    fflush(stdout);
+    pthread_mutex_unlock(&applog_lock);
+}
+
 static void setup_status_region(void)
 {
+    int rows = get_console_rows();
+    if (rows < STATUS_ROWS + 4) rows = STATUS_ROWS + 4;
+    g_menu_row = rows;
+
     // Clear screen, home cursor.
     printf("\033[2J\033[H");
-    // Set DECSTBM scroll region: top = STATUS_ROWS+2, bottom = end of screen.
-    printf("\033[%d;r", STATUS_ROWS + 2);
+    // Set DECSTBM scroll region: top = STATUS_ROWS+2, bottom = rows-1
+    // (last row reserved for the bottom menu bar).
+    printf("\033[%d;%dr", STATUS_ROWS + 2, rows - 1);
     // Move cursor to just below the status block so log lines start there.
     printf("\033[%d;1H", STATUS_ROWS + 2);
     fflush(stdout);
     g_status_mode = TRUE;
+
+    paint_menu_bar();
 }
 
 static void reset_status_region(void)
@@ -3710,6 +3745,7 @@ static void reset_status_region(void)
     printf("\033[r\n");
     fflush(stdout);
     g_status_mode = FALSE;
+    g_menu_row = 0;
 }
 
 // Format seconds as e.g. "3h 17m 42s" / "17m 42s" / "42s"
@@ -3756,13 +3792,12 @@ static void paint_status_header(void)
     printf("\033[K" CL_CYN
            "+------------------------------------------------------------------+"
            CL_WHT "\n");
-    // row 2 - title + algo + uptime + quit hint
+    // row 2 - title + algo + uptime
     printf("\033[K" CL_CYN "|" CL_WHT
            " " CL_GRN "dgbminer for Windows 1.0" CL_WHT
            "  [" CL_YL2 "%-8s" CL_WHT "]"
            "  Up: %-12s"
-           "  " CL_YL2 "Press 'Q' to quit" CL_WHT
-           "   " CL_CYN "|" CL_WHT "\n",
+           "                       " CL_CYN "|" CL_WHT "\n",
            algo_name, upt);
     // row 3 - hash rate + share counts
     printf("\033[K" CL_CYN "|" CL_WHT
