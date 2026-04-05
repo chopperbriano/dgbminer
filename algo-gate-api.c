@@ -7,7 +7,13 @@
 #include "algo-gate-api.h"
 #include <windows.h>
 #include "algo/qubit/qubit-gate.h"
+#include "algo/sha/sha256d-4way.h"
+#include "algo/skein/skein-gate.h"
 #include "miner.h"
+
+// Forward declarations for algos without their own header.
+extern bool register_scrypt_algo(algo_gate_t* gate);
+extern bool register_odo_algo(algo_gate_t* gate);
 
 extern enum algos opt_algo;
 extern BOOL opt_benchmark;
@@ -269,11 +275,7 @@ BOOL register_algo_gate( int algo, algo_gate_t *gate )
     case ALGO_QUBIT:        rc = register_qubit_algo         ( gate ); break;
     case ALGO_SCRYPT:       rc = register_scrypt_algo        ( gate ); break;
     case ALGO_SHA256D:      rc = register_sha256d_algo       ( gate ); break;
-    case ALGO_SHA256DT:     rc = register_sha256dt_algo      ( gate ); break;
-    case ALGO_SHA256Q:      rc = register_sha256q_algo       ( gate ); break;
-    case ALGO_SHA256T:      rc = register_sha256t_algo       ( gate ); break;
     case ALGO_SKEIN:        rc = register_skein_algo         ( gate ); break;
-    case ALGO_SKEIN2:       rc = register_skein2_algo        ( gate ); break;
     case ALGO_ODO:          rc = register_odo_algo           ( gate ); break;
    default:
       applog(LOG_ERR,"BUG: unregistered algorithm %s.\n", algo_names[opt_algo] );

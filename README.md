@@ -118,6 +118,47 @@ rpcport=14022
 
 ---
 
+## Config file
+
+Instead of passing everything on the command line, drop the flags into a
+JSON file and point the miner at it with `-c`. An example config is included:
+
+```powershell
+.\dgbminerwindows.exe -c cpuminer-conf.json
+```
+
+Example `cpuminer-conf.json`:
+```json
+{
+    "algo": "sha256d",
+    "url": "http://127.0.0.1:14022/",
+    "userpass": "user:pass",
+    "coinbase-addr": "dgb1q66lmtmlkswlphp5j7fgvg4nar4y8uf24hvlu89",
+    "no-getwork": true,
+    "no-stratum": true,
+    "threads": 4,
+    "debug": false
+}
+```
+
+Any option key matches the long option name (without the leading `--`).
+
+---
+
+## Troubleshooting
+
+Set `DGBMINER_DEBUG=1` to have the miner write a diagnostic trace
+to `dgbminer_tui.log` in the current directory:
+
+```powershell
+$env:DGBMINER_DEBUG=1; .\dgbminerwindows.exe -a sha256d ...
+```
+
+This captures TUI init state, header repaints, and every log line routed
+through the scrolling region — useful if the TUI is misbehaving.
+
+---
+
 ## Algorithm efficiency
 
 Under the current **SSE2 baseline** build (the AVX2/AVX-512 upstream paths have

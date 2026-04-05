@@ -51,3 +51,8 @@ CTestTestfile.cmake
 !compat/lib/**/*.lib
 !compat/lib/**/*.dll
 !compat/lib/**/*.a
+
+# Runtime diagnostic files
+dgbminer_tui.log
+dgbminer_applog.log
+dgbminer_boot.log

@@ -41,17 +41,11 @@ set(DGB_SOURCES
     algo/sha/sha256.c
     algo/sha/sha256d-4way.c
     algo/sha/sha256d.c
-    algo/sha/sha256dt.c
-    algo/sha/sha256q-4way.c
-    algo/sha/sha256t-4way.c
-    algo/sha/sha256t-gate.c
     algo/sha/sph_sha2.c
     algo/simd/nist.c
     algo/simd/vector.c
-    algo/skein/skein-4way.c
     algo/skein/skein-gate.c
     algo/skein/skein.c
-    algo/skein/skein2.c
     algo/skein/sph_skein.c
 
     algo/odo/KeccakP-800-reference.cpp
@@ -118,6 +112,14 @@ if(MSVC)
         /EHsc               # C++ exceptions
         /Zc:__cplusplus     # correct __cplusplus macro
         /FI${CMAKE_CURRENT_SOURCE_DIR}/compat.h  # force-include for __attribute__ no-op
+        # Suppress benign upstream warnings that would require invasive
+        # source changes: signed/unsigned compare (C4018), narrowing
+        # conversions in display/stats code (C4244/C4267), pointer
+        # truncation (C4311, intentional in hash table hashing), function
+        # prototype mismatches across compilation units (C4028), and
+        # _WINSOCK_DEPRECATED_NO_WARNINGS being redefined (C4005) since
+        # we also set it in api.c.
+        /wd4005 /wd4018 /wd4028 /wd4244 /wd4267 /wd4311
     )
     # Release-only perf flags
     target_compile_options(dgbminer PRIVATE

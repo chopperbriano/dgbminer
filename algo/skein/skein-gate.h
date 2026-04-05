@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "algo-gate-api.h"
 
+bool register_skein_algo( algo_gate_t* gate );
+
 #if defined(__AVX512F__) && defined(__AVX512VL__) && defined(__AVX512DQ__) && defined(__AVX512BW__)
   #define SKEIN_8WAY 1
 #elif defined(__AVX2__)

@@ -620,16 +620,10 @@ uint32_t* get_stratum_job_ntime();
 
 enum algos {
         ALGO_NULL,
-        ALGO_QUBIT,       
+        ALGO_QUBIT,
         ALGO_SCRYPT,
         ALGO_SHA256D,
-        ALGO_SHA256DT,
-        ALGO_SHA256Q,
-        ALGO_SHA256T,
-        ALGO_SHA3D,
-        ALGO_SHA512256D,
-        ALGO_SKEIN,       
-        ALGO_SKEIN2,
+        ALGO_SKEIN,
         ALGO_ODO,
         ALGO_COUNT
 };
@@ -638,13 +632,7 @@ static const char* const algo_names[] = {
         "qubit",
         "scrypt",
         "sha256d",
-        "sha256dt",
-        "sha256q",
-        "sha256t",
-        "sha3d",
-        "sha512256d",
         "skein",
-        "skein2",
         "odo",
         "\0"
 };
