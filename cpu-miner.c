@@ -3705,7 +3705,7 @@ static void enable_windows_vt_mode(void)
  * still emitted via printf - VT processing is enabled at startup.
  * ========================================================================== */
 
-#define TUI_HEADER_ROWS 8
+#define TUI_HEADER_ROWS 9
 #define TUI_MENU_ROWS   1
 
 static HANDLE           g_con          = INVALID_HANDLE_VALUE;
@@ -3778,81 +3778,108 @@ static void tui_scroll_log_up(void)
 static void tui_paint_header(void)
 {
     extern struct timeval session_start;
+    extern struct timeval total_hashes_time;
+    extern double total_hashes;
     struct timeval now, uptime_tv;
     char upt[24];
-    char hr[20];
+    char hr[24];
+    double hashrate;
+    char hr_units[4] = {0};
     const char *algo_name = algo_names[opt_algo] ? algo_names[opt_algo] : "?";
     const char *url       = rpc_url ? rpc_url : "(none)";
     long accepted_pct = 0;
+    long uptime_secs = 0;
 
     gettimeofday(&now, NULL);
-    if (session_start.tv_sec == 0)
+    if (session_start.tv_sec == 0) {
         snprintf(upt, sizeof upt, "--");
-    else {
+    } else {
         timeval_subtract(&uptime_tv, &now, &session_start);
-        fmt_uptime(upt, sizeof upt, uptime_tv.tv_sec);
+        uptime_secs = uptime_tv.tv_sec;
+        fmt_uptime(upt, sizeof upt, uptime_secs);
+    }
+
+    // Compute live hashrate from total_hashes and uptime (don't wait for the
+    // 5-minute periodic report).
+    if (uptime_secs > 0 && total_hashes > 0.0) {
+        hashrate = total_hashes / (double)uptime_secs;
+        scale_hash_for_display(&hashrate, hr_units);
+        snprintf(hr, sizeof hr, "%.2f %sh/s", hashrate, hr_units);
+    } else {
+        snprintf(hr, sizeof hr, "0.00 h/s");
     }
 
     if (submitted_share_count > 0)
         accepted_pct = (100 * accepted_share_count) / submitted_share_count;
 
-    snprintf(hr, sizeof hr, "%.2f %sh/s",
-             g_last_hashrate,
-             g_last_hr_units[0] ? g_last_hr_units : "");
-
+    // Row 0: top border
     tui_goto(0, 0);
     printf("\033[K" CL_CYN
            "================================================================================"
            CL_WHT);
 
+    // Row 1: title
     tui_goto(0, 1);
-    printf("\033[K" CL_CYN " " CL_GRN "dgbminer for Windows 1.0" CL_WHT
-           " - DigiByte CPU miner (testnet)"
-           "        " CL_GRY "%s" CL_WHT,
+    printf("\033[K " CL_GRN "dgbminer for Windows 1.0" CL_WHT
+           " - DigiByte CPU miner (testnet)             "
+           CL_GRY "%s" CL_WHT,
            opt_debug ? "[debug]" : "       ");
 
+    // Row 2: credit line
     tui_goto(0, 2);
+    printf("\033[K " CL_GRY
+           "Port by chopperbriano | based on Jongjan88/dgbminer (cpuminer-opt fork)"
+           CL_WHT);
+
+    // Row 3: separator
+    tui_goto(0, 3);
     printf("\033[K" CL_CYN
            "--------------------------------------------------------------------------------"
            CL_WHT);
 
-    tui_goto(0, 3);
-    printf("\033[K " CL_YL2 "Algo:" CL_WHT " %-10s   "
-           CL_YL2 "Up:" CL_WHT " %-14s   "
-           CL_YL2 "Hash:" CL_WHT " " CL_GRN "%-16s" CL_WHT,
-           algo_name, upt, hr);
-
+    // Row 4: algo + uptime + hash — 8-char labels for colon alignment
     tui_goto(0, 4);
-    printf("\033[K " CL_YL2 "Shares:" CL_WHT "  "
-           "Sub " CL_WHT "%-5u  "
-           CL_GRN "Acc %-5u" CL_WHT "  "
-           CL_RED "Rej %-5u" CL_WHT "  "
-           "(%ld%%)   "
-           CL_YL2 "Solved:" CL_WHT " " CL_LMA "%-4u" CL_WHT,
+    printf("\033[K " CL_YL2 "%-8s" CL_WHT "%-20s"
+           CL_YL2 "%-5s" CL_WHT "%-18s"
+           CL_YL2 "%-6s" CL_WHT CL_GRN "%s" CL_WHT,
+           "Algo:", algo_name,
+           "Up:",   upt,
+           "Hash:", hr);
+
+    // Row 5: shares + solved
+    tui_goto(0, 5);
+    printf("\033[K " CL_YL2 "%-8s" CL_WHT
+           "Sub %-5u  " CL_GRN "Acc %-5u" CL_WHT
+           "  " CL_RED "Rej %-5u" CL_WHT "  (%3ld%%)       "
+           CL_YL2 "%-8s" CL_WHT CL_LMA "%-4u" CL_WHT,
+           "Shares:",
            (unsigned)submitted_share_count,
            (unsigned)accepted_share_count,
            (unsigned)rejected_share_count,
            accepted_pct,
-           (unsigned)solved_block_count);
+           "Solved:", (unsigned)solved_block_count);
 
-    tui_goto(0, 5);
+    // Row 6: pool url
+    tui_goto(0, 6);
     {
         char url_show[72];
         size_t len = strlen(url);
-        if (len > 70)
-            snprintf(url_show, sizeof url_show, "%.67s...", url);
+        if (len > 68)
+            snprintf(url_show, sizeof url_show, "%.65s...", url);
         else
             snprintf(url_show, sizeof url_show, "%s", url);
-        printf("\033[K " CL_YL2 "Pool:" CL_WHT " %s", url_show);
+        printf("\033[K " CL_YL2 "%-8s" CL_WHT "%s", "Pool:", url_show);
     }
 
-    tui_goto(0, 6);
+    // Row 7: bottom border
+    tui_goto(0, 7);
     printf("\033[K" CL_CYN
            "================================================================================"
            CL_WHT);
 
-    tui_goto(0, 7);
-    printf("\033[K");  // blank separator
+    // Row 8: blank separator
+    tui_goto(0, 8);
+    printf("\033[K");
     fflush(stdout);
 }
 
@@ -3900,6 +3927,26 @@ static void tui_log_writer(const char *line)
     pthread_mutex_unlock(&g_tui_lock);
 }
 
+// Clear the entire console screen buffer (scrollback and visible), using
+// the Win32 API for a guaranteed full wipe regardless of terminal quirks.
+static void tui_clear_screen(void)
+{
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    COORD origin = {0, 0};
+    DWORD cells, written;
+
+    if (!GetConsoleScreenBufferInfo(g_con, &csbi)) return;
+    cells = (DWORD)csbi.dwSize.X * (DWORD)csbi.dwSize.Y;
+
+    FillConsoleOutputCharacterW(g_con, L' ', cells, origin, &written);
+    FillConsoleOutputAttribute(g_con, csbi.wAttributes, cells, origin, &written);
+    SetConsoleCursorPosition(g_con, origin);
+
+    // Also tell VT: clear-screen + clear-scrollback + home.
+    printf("\033[2J\033[3J\033[H");
+    fflush(stdout);
+}
+
 // Install the TUI: clear screen, paint header + menu, redirect applog.
 static void tui_init(void)
 {
@@ -3909,9 +3956,7 @@ static void tui_init(void)
     g_log_row = g_log_top;
     g_tui_active = TRUE;
 
-    // Clear entire screen.
-    printf("\033[2J");
-    fflush(stdout);
+    tui_clear_screen();
 
     tui_paint_header();
     tui_paint_menu();
