@@ -4108,27 +4108,60 @@ static void tui_repaint_log(void)
     tui_dbg("repaint: count=%d visible=%d start=%d top=%d bot=%d",
             g_log_count, visible, start, g_log_top, g_log_bottom);
 
-    // Paint each row via VT cursor positioning. ANSI color codes in the
-    // log line are preserved so accept=green / reject=red / block=cyan
-    // etc. render as colors.
-    char seq[TUI_LINE_MAX + 128];
-    tui_write("\033[r");
+    // Batch the entire log region into ONE WriteConsoleA call so ConPTY
+    // cannot interleave or drop intermediate CUP escapes. For each row we
+    // emit: CR + 'position to row 1-indexed' + clear-line + truncated line.
+    // Cap each line's visible length so it can't spill into the next row.
+    int total_lines = 2048;
+    int bufcap = total_lines * (TUI_LINE_MAX + 32);
+    char *big = (char*)malloc(bufcap);
+    if (!big) return;
+    int off = 0;
+
+    // Disable line wrap, save attr
+    off += snprintf(big + off, bufcap - off, "\033[?7l");
+
     for (int i = 0; i < visible; i++) {
         int row = g_log_top + i + 1;  // VT 1-indexed
         int idx = start + i;
+        // Position to start of row, clear entire row
+        off += snprintf(big + off, bufcap - off, "\033[%d;1H\033[2K", row);
         if (idx < g_log_count) {
             const char *line = g_log_buf[idx % TUI_LOG_BUF];
-            int n = snprintf(seq, sizeof seq,
-                             "\033[%d;1H\033[2K%s\033[0m", row, line);
-            DWORD written;
-            WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
+            // Copy line chars, bounded by visible terminal width. We need
+            // to skip over ANSI escape sequences when counting visible
+            // columns so the line doesn't get truncated mid-escape.
+            int vis = 0;
+            int max_vis = g_term_w - 1;
+            const char *p = line;
+            while (*p && vis < max_vis && off < bufcap - 16) {
+                if (p[0] == 0x1B && p[1] == '[') {
+                    // copy through terminator char (m/K/H/J/A/B/C/D)
+                    big[off++] = *p++;
+                    big[off++] = *p++;
+                    while (*p && off < bufcap - 8) {
+                        char c = *p;
+                        big[off++] = *p++;
+                        if (c == 'm' || c == 'K' || c == 'H' || c == 'J'
+                         || c == 'A' || c == 'B' || c == 'C' || c == 'D')
+                            break;
+                    }
+                } else {
+                    big[off++] = *p++;
+                    vis++;
+                }
+            }
+            off += snprintf(big + off, bufcap - off, "\033[0m");
             tui_dbg("  row=%d idx=%d: %.70s", row, idx, line);
-        } else {
-            int n = snprintf(seq, sizeof seq, "\033[%d;1H\033[2K", row);
-            DWORD written;
-            WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
         }
     }
+    // Re-enable line wrap for anything else the TUI might do later
+    off += snprintf(big + off, bufcap - off, "\033[?7h");
+    if (off > 0) {
+        DWORD written;
+        WriteConsoleA(g_con, big, (DWORD)off, &written, NULL);
+    }
+    free(big);
 }
 
 // Log every header paint so we can correlate with log repaint timing.
