@@ -4092,6 +4092,8 @@ static void tui_log_writer(const char *line)
     memcpy(buf, line, copy);
     buf[copy] = 0;
 
+    tui_dbg("LOG_IN count=%d: %.80s", g_log_count + 1, buf);
+
     pthread_mutex_lock(&g_tui_lock);
 
     // Store in circular buffer, truncating to row width.
