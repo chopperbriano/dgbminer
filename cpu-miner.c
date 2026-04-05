@@ -3852,7 +3852,6 @@ static void tui_paint_header(void)
     extern struct timeval session_start;
     extern struct timeval total_hashes_time;
     extern double total_hashes;
-    tui_dbg("HDR start");
     struct timeval now, uptime_tv;
     char upt[24];
     char hr[24];
@@ -4031,28 +4030,20 @@ static void tui_repaint_log(void)
     if (visible <= 0) return;
     int start = (g_log_count > visible) ? (g_log_count - visible) : 0;
 
-    tui_dbg("repaint: count=%d top=%d bot=%d start=%d",
-            g_log_count, g_log_top, g_log_bottom, start);
-
-    // Reset scroll region to whole screen, then paint each row
-    // independently via a single WriteConsoleA per row. Simpler than
-    // batching and immune to scroll-region state left behind by
-    // anything else.
-    char seq[TUI_LINE_MAX + 64];
+    // Paint each row via VT cursor positioning. ANSI color codes in the
+    // log line are preserved so accept=green / reject=red / block=cyan
+    // etc. render as colors.
+    char seq[TUI_LINE_MAX + 128];
     tui_write("\033[r");
     for (int i = 0; i < visible; i++) {
         int row = g_log_top + i + 1;  // VT 1-indexed
         int idx = start + i;
         if (idx < g_log_count) {
-            char plain[TUI_LINE_MAX];
-            strip_ansi(plain, sizeof plain, g_log_buf[idx % TUI_LOG_BUF]);
-            int avail = g_term_w;
-            if ((int)strlen(plain) > avail) plain[avail] = 0;
+            const char *line = g_log_buf[idx % TUI_LOG_BUF];
             int n = snprintf(seq, sizeof seq,
-                             "\033[%d;1H\033[2K%s", row, plain);
+                             "\033[%d;1H\033[2K%s\033[0m", row, line);
             DWORD written;
             WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
-            tui_dbg("  VT row=%d idx=%d: %.70s", row, idx, plain);
         } else {
             int n = snprintf(seq, sizeof seq, "\033[%d;1H\033[2K", row);
             DWORD written;
@@ -4079,8 +4070,6 @@ static void tui_log_writer(const char *line)
     if (copy >= sizeof buf) copy = sizeof buf - 1;
     memcpy(buf, line, copy);
     buf[copy] = 0;
-
-    tui_dbg("LOG_IN count=%d: %.80s", g_log_count + 1, buf);
 
     pthread_mutex_lock(&g_tui_lock);
 
