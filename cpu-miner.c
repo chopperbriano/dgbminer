@@ -3791,6 +3791,37 @@ static void tui_writef(const char *fmt, ...)
     tui_write(buf);
 }
 
+// Blank one console row using Win32 API. More reliable than relying
+// on \033[K processing after a raw SetConsoleCursorPosition call.
+static void tui_clear_row(SHORT row)
+{
+    COORD pos; pos.X = 0; pos.Y = row;
+    DWORD written;
+    FillConsoleOutputCharacterW(g_con, L' ', g_term_w, pos, &written);
+    // Also reset character attributes on the row so stale colors don't linger.
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (GetConsoleScreenBufferInfo(g_con, &csbi))
+        FillConsoleOutputAttribute(g_con, csbi.wAttributes, g_term_w, pos, &written);
+}
+
+static void tui_hide_cursor(void)
+{
+    CONSOLE_CURSOR_INFO ci;
+    if (GetConsoleCursorInfo(g_con, &ci)) {
+        ci.bVisible = FALSE;
+        SetConsoleCursorInfo(g_con, &ci);
+    }
+}
+
+static void tui_show_cursor(void)
+{
+    CONSOLE_CURSOR_INFO ci;
+    if (GetConsoleCursorInfo(g_con, &ci)) {
+        ci.bVisible = TRUE;
+        SetConsoleCursorInfo(g_con, &ci);
+    }
+}
+
 static void tui_query_size(void)
 {
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -3869,31 +3900,37 @@ static void tui_paint_header(void)
 
     // Row 0: top border
     tui_goto(0, 0);
+    tui_clear_row(0);
     tui_writef("\033[K" CL_CYN
            "================================================================================"
            CL_WHT);
 
     // Row 1: title
     tui_goto(0, 1);
-    tui_writef("\033[K " CL_GRN "dgbminer for Windows 1.0" CL_WHT
-           " - DigiByte CPU miner (testnet)             "
-           CL_GRY "%s" CL_WHT,
-           opt_debug ? "[debug]" : "       ");
+    tui_clear_row(1);
+    tui_writef(" " CL_GRN "dgbminer for Windows 1.0" CL_WHT
+           " - DigiByte CPU miner (testnet)         "
+           "Level: %s%s" CL_WHT,
+           opt_debug ? CL_YL2 : CL_GR2,
+           opt_debug ? "DEBUG" : "INFO ");
 
     // Row 2: credit line
     tui_goto(0, 2);
+    tui_clear_row(2);
     tui_writef("\033[K " CL_GRY
            "Port by chopperbriano | based on Jongjan88/dgbminer (cpuminer-opt fork)"
            CL_WHT);
 
     // Row 3: separator
     tui_goto(0, 3);
+    tui_clear_row(3);
     tui_writef("\033[K" CL_CYN
            "--------------------------------------------------------------------------------"
            CL_WHT);
 
     // Row 4: algo + uptime + hash — 8-char labels for colon alignment
     tui_goto(0, 4);
+    tui_clear_row(4);
     tui_writef("\033[K " CL_YL2 "%-8s" CL_WHT "%-20s"
            CL_YL2 "%-5s" CL_WHT "%-18s"
            CL_YL2 "%-6s" CL_WHT CL_GRN "%s" CL_WHT,
@@ -3903,6 +3940,7 @@ static void tui_paint_header(void)
 
     // Row 5: shares + solved
     tui_goto(0, 5);
+    tui_clear_row(5);
     tui_writef("\033[K " CL_YL2 "%-8s" CL_WHT
            "Sub %-5u  " CL_GRN "Acc %-5u" CL_WHT
            "  " CL_RED "Rej %-5u" CL_WHT "  (%3ld%%)       "
@@ -3916,6 +3954,7 @@ static void tui_paint_header(void)
 
     // Row 6: pool url
     tui_goto(0, 6);
+    tui_clear_row(6);
     {
         char url_show[72];
         size_t len = strlen(url);
@@ -3928,22 +3967,26 @@ static void tui_paint_header(void)
 
     // Row 7: bottom border
     tui_goto(0, 7);
+    tui_clear_row(7);
     tui_writef("\033[K" CL_CYN
            "================================================================================"
            CL_WHT);
 
     // Row 8: blank separator
     tui_goto(0, 8);
+    tui_clear_row(8);
     tui_writef("\033[K");
 }
 
 // Paint the menu bar at the last terminal row.
 static void tui_paint_menu(void)
 {
-    tui_goto(0, (SHORT)(g_term_h - 1));
-    tui_writef("\033[K" CL_CY2
-           " [" CL_YL2 "Q" CL_CY2 "] Quit    "
-           "[" CL_YL2 "L" CL_CY2 "] Toggle debug    "
+    SHORT menu_row = (SHORT)(g_term_h - 1);
+    tui_clear_row(menu_row);
+    tui_goto(0, menu_row);
+    tui_writef(" " CL_CY2
+           "[" CL_YL2 "Q" CL_CY2 "] Quit    "
+           "[" CL_YL2 "L" CL_CY2 "] Toggle log level (info/debug)    "
            "[" CL_YL2 "Ctrl+C" CL_CY2 "] Abort"
            CL_WHT);
 }
@@ -3971,8 +4014,9 @@ static void tui_log_writer(const char *line)
         g_log_row = g_log_bottom;
     }
 
+    tui_clear_row(g_log_row);
     tui_goto(0, g_log_row);
-    tui_writef("\033[K%s" CL_N, buf);
+    tui_writef("%s" CL_N, buf);
     g_log_row++;
 
     pthread_mutex_unlock(&g_tui_lock);
@@ -4007,6 +4051,7 @@ static void tui_init(void)
     g_tui_active = TRUE;
 
     tui_clear_screen();
+    tui_hide_cursor();
 
     tui_paint_header();
     tui_paint_menu();
@@ -4022,6 +4067,7 @@ static void tui_shutdown(void)
     if (!g_tui_active) return;
     g_tui_active = FALSE;
     log_writer = NULL;
+    tui_show_cursor();
     tui_goto(0, (SHORT)(g_term_h - 1));
     tui_write("\r\n");
 }
