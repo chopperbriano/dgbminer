@@ -4160,6 +4160,21 @@ static void tui_repaint_log(void)
     if (off > 0) {
         DWORD written;
         WriteConsoleA(g_con, big, (DWORD)off, &written, NULL);
+        // Dump the raw bytes we just sent, with \033 -> '^[' so the
+        // diagnostic log shows exactly what the terminal received.
+        if (g_tui_debug) {
+            fprintf(g_tui_debug, "  WROTE %d bytes: ", off);
+            for (int k = 0; k < off && k < 400; k++) {
+                unsigned char c = (unsigned char)big[k];
+                if (c == 0x1B) fputs("^[", g_tui_debug);
+                else if (c == '\n') fputs("\\n", g_tui_debug);
+                else if (c == '\r') fputs("\\r", g_tui_debug);
+                else if (c < 32)    fprintf(g_tui_debug, "\\x%02x", c);
+                else                fputc(c, g_tui_debug);
+            }
+            fputc('\n', g_tui_debug);
+            fflush(g_tui_debug);
+        }
     }
     free(big);
 }
