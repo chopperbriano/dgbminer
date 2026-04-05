@@ -3751,14 +3751,6 @@ static void enable_windows_vt_mode(void)
     DWORD mode = 0;
     if (h_out != INVALID_HANDLE_VALUE && GetConsoleMode(h_out, &mode)) {
         mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-#ifndef DISABLE_NEWLINE_AUTO_RETURN
-#define DISABLE_NEWLINE_AUTO_RETURN 0x0008
-#endif
-        // DISABLE_NEWLINE_AUTO_RETURN: \n in a WriteConsoleA stream just
-        // goes down one line, no implicit CR, no scroll when at bottom.
-        // Prevents our absolute-positioned log writes from auto-scrolling
-        // the window (which would push the pinned header off the top).
-        mode |= DISABLE_NEWLINE_AUTO_RETURN;
         mode &= ~ENABLE_WRAP_AT_EOL_OUTPUT;  // prevent long writes from
                                              // wrapping into pinned rows
         SetConsoleMode(h_out, mode);
@@ -3955,32 +3947,12 @@ static void tui_paint_header(void)
            opt_debug ? CL_YL2 : CL_GR2,
            opt_debug ? "DEBUG" : "INFO ");
 
-    // Row 2: connection + algo match status
+    // Row 2: credit line
     tui_goto(0, 2);
     tui_clear_row(2);
-    {
-        extern char g_block_algo[16];
-        extern int  g_algo_mismatch;
-        extern int  g_rpc_failures;
-        const char *conn_col = (g_rpc_failures == 0) ? CL_GR2 : CL_RED;
-        const char *conn_txt = (g_rpc_failures == 0) ? "CONNECTED   "
-                                                     : "DISCONNECTED";
-        if ( g_block_algo[0] ) {
-            const char *algo_col = g_algo_mismatch ? CL_RED : CL_GR2;
-            const char *algo_tag = g_algo_mismatch ? "MISMATCH" : "match   ";
-            tui_writef(" RPC: %s%s" CL_WHT
-                       "   Block wants: " CL_YL2 "%-8s" CL_WHT
-                       " vs -a " CL_YL2 "%-8s" CL_WHT
-                       " [%s%s" CL_WHT "]",
-                       conn_col, conn_txt, g_block_algo,
-                       algo_names[opt_algo] ? algo_names[opt_algo] : "?",
-                       algo_col, algo_tag);
-        } else {
-            tui_writef(" RPC: %s%s" CL_WHT
-                       "   (waiting for first block)",
-                       conn_col, conn_txt);
-        }
-    }
+    tui_writef("\033[K " CL_GRY
+           "Port by chopperbriano | based on Jongjan88/dgbminer (cpuminer-opt fork)"
+           CL_WHT);
 
     // Row 3: separator
     tui_goto(0, 3);
@@ -4105,78 +4077,26 @@ static void tui_repaint_log(void)
     if (visible <= 0) return;
     int start = (g_log_count > visible) ? (g_log_count - visible) : 0;
 
-    tui_dbg("repaint: count=%d visible=%d start=%d top=%d bot=%d",
-            g_log_count, visible, start, g_log_top, g_log_bottom);
-
-    // Batch the entire log region into ONE WriteConsoleA call so ConPTY
-    // cannot interleave or drop intermediate CUP escapes. For each row we
-    // emit: CR + 'position to row 1-indexed' + clear-line + truncated line.
-    // Cap each line's visible length so it can't spill into the next row.
-    int total_lines = 2048;
-    int bufcap = total_lines * (TUI_LINE_MAX + 32);
-    char *big = (char*)malloc(bufcap);
-    if (!big) return;
-    int off = 0;
-
-    // Disable line wrap, save attr
-    off += snprintf(big + off, bufcap - off, "\033[?7l");
-
+    // Paint each row via VT cursor positioning. ANSI color codes in the
+    // log line are preserved so accept=green / reject=red / block=cyan
+    // etc. render as colors.
+    char seq[TUI_LINE_MAX + 128];
+    tui_write("\033[r");
     for (int i = 0; i < visible; i++) {
         int row = g_log_top + i + 1;  // VT 1-indexed
         int idx = start + i;
-        // Position to start of row, clear entire row
-        off += snprintf(big + off, bufcap - off, "\033[%d;1H\033[2K", row);
         if (idx < g_log_count) {
             const char *line = g_log_buf[idx % TUI_LOG_BUF];
-            // Copy line chars, bounded by visible terminal width. We need
-            // to skip over ANSI escape sequences when counting visible
-            // columns so the line doesn't get truncated mid-escape.
-            int vis = 0;
-            int max_vis = g_term_w - 1;
-            const char *p = line;
-            while (*p && vis < max_vis && off < bufcap - 16) {
-                if (p[0] == 0x1B && p[1] == '[') {
-                    // copy through terminator char (m/K/H/J/A/B/C/D)
-                    big[off++] = *p++;
-                    big[off++] = *p++;
-                    while (*p && off < bufcap - 8) {
-                        char c = *p;
-                        big[off++] = *p++;
-                        if (c == 'm' || c == 'K' || c == 'H' || c == 'J'
-                         || c == 'A' || c == 'B' || c == 'C' || c == 'D')
-                            break;
-                    }
-                } else {
-                    big[off++] = *p++;
-                    vis++;
-                }
-            }
-            off += snprintf(big + off, bufcap - off, "\033[0m");
-            tui_dbg("  row=%d idx=%d: %.70s", row, idx, line);
+            int n = snprintf(seq, sizeof seq,
+                             "\033[%d;1H\033[2K%s\033[0m", row, line);
+            DWORD written;
+            WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
+        } else {
+            int n = snprintf(seq, sizeof seq, "\033[%d;1H\033[2K", row);
+            DWORD written;
+            WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
         }
     }
-    // Re-enable line wrap for anything else the TUI might do later
-    off += snprintf(big + off, bufcap - off, "\033[?7h");
-    if (off > 0) {
-        DWORD written;
-        WriteConsoleA(g_con, big, (DWORD)off, &written, NULL);
-        // Dump the raw bytes we just sent, with \033 -> '^[' so the
-        // diagnostic log shows exactly what the terminal received.
-        if (g_tui_debug) {
-            fprintf(g_tui_debug, "  WROTE %d bytes: ", off);
-            for (int k = 0; k < off && k < 400; k++) {
-                unsigned char c = (unsigned char)big[k];
-                if (c == 0x1B) fputs("^[", g_tui_debug);
-                else if (c == '\n') fputs("\\n", g_tui_debug);
-                else if (c == '\r') fputs("\\r", g_tui_debug);
-                else if (c < 32)    fprintf(g_tui_debug, "\\x%02x", c);
-                else                fputc(c, g_tui_debug);
-            }
-            fputc('\n', g_tui_debug);
-            fflush(g_tui_debug);
-        }
-    }
-    free(big);
 }
 
 // Log every header paint so we can correlate with log repaint timing.
