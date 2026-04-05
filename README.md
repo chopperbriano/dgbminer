@@ -118,9 +118,32 @@ rpcport=14022
 
 ---
 
+## Algorithm efficiency
+
+Under the current **SSE2 baseline** build (the AVX2/AVX-512 upstream paths have
+missing includes and are disabled), each algorithm registers its best available
+SSE2 implementation. What you get:
+
+| Algo       | Implementation               | Parallelism | Notes |
+|------------|------------------------------|-------------|-------|
+| **sha256d**| `scanhash_sha256d_4way`      | 4-way SSE2  | Optimal for SSE2. 4 nonces hashed in parallel via 128-bit SSE2 regs. |
+| **scrypt** | `scanhash_scrypt` (THROUGHPUT=4) | 4-way SSE2 | Optimal for SSE2. `scrypt_core_simd128` / `scrypt_core_4way`. |
+| **odo**    | `scanhash_odo`               | 1-way       | Only one implementation exists; odocrypt changes every few weeks. |
+| **skein**  | `scanhash_skein`             | 1-way       | Skein's 4-way path (`skein-hash-4way.c`) requires `__m256i` (AVX2); no SSE2 parallel version exists upstream. |
+| **qubit**  | `scanhash_qubit`             | 1-way       | Qubit's 2-way path requires AVX2 + AES-NI; the SSE2 fallback runs serially. |
+
+**sha256d, scrypt, and odo are already at their best** for a CPU build.
+
+**skein and qubit** run serially without AVX2. Enabling AVX2 (a separate
+refactor to fix the missing include chains in `cubehash_sse2.c`,
+`luffa_for_sse2.c`, `scrypt-core-4way.c`, etc.) would unlock:
+- `scanhash_skein_4way` (4 hashes in parallel via AVX2)
+- `scanhash_qubit_2way` (2 hashes in parallel via AVX2 + AES-NI)
+...which would roughly 2-4× those two algos' hash rates on this CPU.
+
 ## Notes
 
-- Currently built with the **SSE2 baseline** — the AVX2/AVX-512 code paths in the upstream source have missing includes and are disabled. Enabling them is a future improvement.
+- Currently built with the **SSE2 baseline** — the AVX2/AVX-512 code paths in the upstream source have missing includes and are disabled. Enabling them is a future improvement (see **Algorithm efficiency** table above).
 - Binary is statically linked: no DLLs to distribute.
 - Licensed under **GPL v3** (see LICENSE).
 
