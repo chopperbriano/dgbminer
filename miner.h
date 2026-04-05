@@ -641,7 +641,7 @@ const char* algo_name( enum algos a );
 
 
 static char const usage[] = "\
-Usage: cpuminer [OPTIONS]\n\
+Usage: dgbminerwindows [OPTIONS]\n\
 Options:\n\
   -a, --algo=ALGO       specify the Digibyte algorithm to use\n\
                          (1) qubit         Qubit\n\
