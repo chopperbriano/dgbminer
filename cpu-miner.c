@@ -2922,7 +2922,7 @@ static void show_credits()
    printf("\n");
    printf("  +----------------------------------------------+\n");
    printf("  |                                              |\n");
-   printf("  |   dgbminer for Windows  1.1                  |\n");
+   printf("  |   dgbminer for Windows  1.2                  |\n");
    printf("  |   A DigiByte-optimized CPU miner             |\n");
    printf("  |                                              |\n");
    printf("  |   Algos: sha256d, scrypt, skein, qubit, odo  |\n");
@@ -3926,7 +3926,7 @@ static void tui_paint_header(void)
         const char *rpc_col = ma_is_disconnected() ? CL_RED : CL_GR2;
         const char *rpc_txt = ma_is_disconnected() ? "DISCONNECTED"
                                                    : "CONNECTED   ";
-        tui_writef(" " CL_GRN "dgbminer for Windows 1.1" CL_WHT
+        tui_writef(" " CL_GRN "dgbminer for Windows 1.2" CL_WHT
                " - DigiByte (testnet)   "
                "RPC: %s%s" CL_WHT "   "
                "Level: %s%s" CL_WHT,
