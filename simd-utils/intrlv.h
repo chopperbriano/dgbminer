@@ -459,7 +459,9 @@ static void mm128_bswap32_80( void *d, void *s )
 }
 
 #endif
-extern __m128i mm128_bswap_32(__m128i v);
+/* mm128_bswap_32 is a function-like macro defined in simd-128.h; do not
+   re-declare it as an extern function here (MSVC expands the macro in
+   the declaration and blows up). */
 
 static inline void mm128_bswap32_intrlv80_4x32( void *d, const void *src )
 {

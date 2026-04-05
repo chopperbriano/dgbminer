@@ -4329,7 +4329,7 @@ int main(int argc, char *argv[])
    // need to register to get algo optimizations for cpu capabilities
    // but that causes registration logs before cpu capabilities is output.
    // Would need to split register function into 2 parts. First part sets algo
-   // optimizations but no logging, second part does any logging.   
+   // optimizations but no logging, second part does any logging.
    if ( !register_algo_gate( opt_algo, &algo_gate ) )  exit(1);
 
    if ( !check_cpu_capability() ) exit(1);

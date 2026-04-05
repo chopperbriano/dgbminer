@@ -930,7 +930,7 @@ int sha256_8way_transform_le_short( __m256i *state_out, const __m256i *data,
    __m256i T1_60 = mm256_add4_32( D, BSG2_1x( A ), CHx( A, B, C ), W[12] );
    H = _mm256_add_epi32( H, T1_60 );
 
-   if ( _mm256_movemask_ps( (__m256)_mm256_cmpeq_epi32( H, H_ ) ) == 0 )
+   if ( _mm256_movemask_ps( _mm256_castsi256_ps( _mm256_cmpeq_epi32( H, H_ ) ) ) == 0 )
       return 0;
 
    __m256i K60 = _mm256_set1_epi32( K256[60] );

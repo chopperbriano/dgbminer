@@ -16,7 +16,7 @@ void sha256q_16way_hash( void* output, const void* input )
    sha256_16way_context ctx;
    memcpy( &ctx, &sha256_ctx16, sizeof ctx );
 
-   sha256_16way_update( &ctx, input + (64<<4), 16 );
+   sha256_16way_update( &ctx, ((const char *)input) + (64<<4), 16 );
    sha256_16way_close( &ctx, vhash );
 
    sha256_16way_init( &ctx );
@@ -89,7 +89,7 @@ void sha256q_8way_hash( void* output, const void* input )
    sha256_8way_context ctx;
    memcpy( &ctx, &sha256_ctx8, sizeof ctx );
 
-   sha256_8way_update( &ctx, input + (64<<3), 16 );
+   sha256_8way_update( &ctx, ((const char *)input) + (64<<3), 16 );
    sha256_8way_close( &ctx, vhash );
 
    sha256_8way_init( &ctx );

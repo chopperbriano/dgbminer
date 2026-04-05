@@ -102,9 +102,10 @@ target_compile_definitions(dgbminer PRIVATE
     CURL_STATICLIB
     __SSE2__
     NOMINMAX
-    # Note: the AVX2/AVX-512 code paths in this codebase were never actually
-    # compiled (original vcxproj only set __SSE2__). They have missing
-    # includes and will not build. Stick to SSE2 baseline.
+    # AVX2 porting attempted but hit MSVC codegen crashes (see git history
+    # around commit that will be reverted). The codebase's AVX2 paths were
+    # designed for GCC/MinGW and MSVC /arch:AVX2 + the mixed inline
+    # intrinsics chain produces broken codegen. Sticking to SSE2 baseline.
 )
 
 # ---------------------------------------------------------------------------

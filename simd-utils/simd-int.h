@@ -1,17 +1,30 @@
 #if !defined(SIMD_INT_H__)
 #define SIMD_INT_H__ 1
 
-// Endian byte swap
+// Endian byte swap + bit rotation. MSVC ships these under different
+// names (the <intrin.h> intrinsics); GCC/Clang use __builtin_* and
+// the x86intrin __rol*/__ror* helpers.
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <stdlib.h>
+#include <intrin.h>
+#define bswap_64    _byteswap_uint64
+#ifndef bswap_32
+#define bswap_32    _byteswap_ulong
+#endif
+#define rol64       _rotl64
+#define ror64       _rotr64
+#define rol32       _rotl
+#define ror32       _rotr
+#else
 #define bswap_64    __builtin_bswap64
-
 #ifndef bswap_32
 #define bswap_32    __builtin_bswap32
 #endif
-// Bit rotation
 #define rol64       __rolq
 #define ror64       __rorq
 #define rol32       __rold
 #define ror32       __rord
+#endif
 
 // Safe division, integer or floating point. For floating point it's as  
 // safe as 0 is precisely zero.

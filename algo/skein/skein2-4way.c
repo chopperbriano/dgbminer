@@ -14,7 +14,7 @@ void skein2hash_8way( void *output, const void *input )
    skein512_8way_context ctx;
    memcpy( &ctx, &skein512_8way_ctx, sizeof( ctx ) );
 
-   skein512_8way_final16( &ctx, hash, input + (64*8) );
+   skein512_8way_final16( &ctx, hash, ((const char *)input) + (64*8) );
    skein512_8way_full( &ctx, output, hash, 64 );
 }
 
@@ -77,7 +77,7 @@ void skein2hash_4way( void *output, const void *input )
    memcpy( &ctx, &skein512_4way_ctx, sizeof( ctx ) ); 
    uint64_t hash[16*4] __attribute__ ((aligned (64)));
 
-   skein512_4way_final16( &ctx, hash, input + (64*4) );
+   skein512_4way_final16( &ctx, hash, ((const char *)input) + (64*4) );
    skein512_4way_full( &ctx, output, hash, 64 );
 }
 

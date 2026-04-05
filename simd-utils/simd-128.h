@@ -160,13 +160,14 @@ static __m128i mm128_neg1_fn()
 // Examples of simple operations using xim:
 
 // Insert 32 bit integer into v at element c and return updated v.
-static inline __m128i mm128_insert_32( const __m128i v, const uint32_t i,
-                                       const int c )
-{   return mm128_xim_32( v, mm128_mov32_128( i ), c<<4 ); }
+// Macro form: _mm_insert_ps needs c to be a compile-time constant on MSVC,
+// so call sites must supply a literal for c.
+#define mm128_insert_32( v, i, c ) \
+   mm128_xim_32( v, mm128_mov32_128( i ), (c)<<4 )
 
 // Zero 32 bit elements when corresponding bit in 4 bit mask is set.
-static inline __m128i mm128_mask_32( const __m128i v, const int m ) 
-{   return mm128_xim_32( v, v, m ); }
+// Macro for the same reason as mm128_insert_32.
+#define mm128_mask_32( v, m )     mm128_xim_32( v, v, m )
 
 // Copy element i2 of v2 to element i1 of dest and copy remaining elements from v1.
 #define mm128_mov32_32( v1, i1, v2, i2 ) \

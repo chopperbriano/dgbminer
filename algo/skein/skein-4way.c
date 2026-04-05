@@ -18,7 +18,7 @@ void skeinhash_8way( void *state, const void *input )
      uint32_t vhash32[16*8] __attribute__ ((aligned (128)));
      sha256_8way_context ctx_sha256;
 
-     skein512_8way_final16( &ctx_skein, vhash64, input + (64*8) );
+     skein512_8way_final16( &ctx_skein, vhash64, ((const char *)input) + (64*8) );
      rintrlv_8x64_8x32( vhash32, vhash64, 512 );
 
      sha256_8way_init( &ctx_sha256 );
@@ -92,7 +92,7 @@ void skeinhash_4way( void *state, const void *input )
      sha256_4way_context ctx_sha256;
 #endif
 
-     skein512_4way_final16( &ctx_skein, vhash64, input + (64*4) );
+     skein512_4way_final16( &ctx_skein, vhash64, ((const char *)input) + (64*4) );
 
 #if defined(__SHA__)      
 
