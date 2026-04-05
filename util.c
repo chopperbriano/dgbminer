@@ -149,6 +149,19 @@ void applog2( int prio, const char *fmt, ... )
          fmt,
          use_colors ? CL_N : ""
       );
+      {
+         static FILE *dbg = NULL;
+         if (!dbg) dbg = fopen("dgbminer_applog.log", "w");
+         if (dbg) {
+            va_list ap_dbg;
+            va_copy(ap_dbg, ap);
+            char tmp[256];
+            vsnprintf(tmp, sizeof tmp, f, ap_dbg);
+            va_end(ap_dbg);
+            fprintf(dbg, "applog2 lw=%p prio=%d: %.200s", (void*)log_writer, prio, tmp);
+            fflush(dbg);
+         }
+      }
       if (log_writer) {
          char buf[2048];
          vsnprintf(buf, sizeof buf, f, ap);
