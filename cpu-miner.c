@@ -4031,6 +4031,9 @@ static void tui_repaint_log(void)
     if (visible <= 0) return;
     int start = (g_log_count > visible) ? (g_log_count - visible) : 0;
 
+    tui_dbg("repaint: count=%d top=%d bot=%d start=%d",
+            g_log_count, g_log_top, g_log_bottom, start);
+
     // Save cursor, then for each visible row: position, clear-to-EOL,
     // and write the plain line (ANSI-stripped so byte count == visible
     // count and truncation is predictable). Finally restore cursor.
@@ -4048,6 +4051,7 @@ static void tui_repaint_log(void)
             if ((int)strlen(plain) > avail) plain[avail] = 0;
             off += snprintf(out + off, sizeof(out) - off,
                             "\033[%d;1H\033[2K%s", row, plain);
+            tui_dbg("  VT row=%d idx=%d: %.70s", row, idx, plain);
         } else {
             off += snprintf(out + off, sizeof(out) - off,
                             "\033[%d;1H\033[2K", row);
