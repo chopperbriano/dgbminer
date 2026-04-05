@@ -3773,8 +3773,13 @@ static void fmt_uptime(char *buf, size_t n, long secs)
 
 static void tui_goto(SHORT x, SHORT y)
 {
-    COORD p; p.X = x; p.Y = y;
-    SetConsoleCursorPosition(g_con, p);
+    // Use VT cursor position (1-indexed). ConPTY terminals translate
+    // this to the right terminal update; SetConsoleCursorPosition on
+    // its own can desync with ConPTY's internal state.
+    char seq[32];
+    int n = snprintf(seq, sizeof seq, "\033[%d;%dH", (int)y + 1, (int)x + 1);
+    DWORD written;
+    WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
 }
 
 // Write straight to the Win32 console, bypassing stdio *and* the
@@ -3797,17 +3802,14 @@ static void tui_writef(const char *fmt, ...)
     tui_write(buf);
 }
 
-// Blank one console row using Win32 API. More reliable than relying
-// on \033[K processing after a raw SetConsoleCursorPosition call.
+// Blank one console row via VT escapes so it works correctly under
+// ConPTY-based terminals (Windows Terminal / VSCode).
 static void tui_clear_row(SHORT row)
 {
-    COORD pos; pos.X = 0; pos.Y = row;
+    char seq[32];
+    int n = snprintf(seq, sizeof seq, "\033[%d;1H\033[2K", (int)row + 1);
     DWORD written;
-    FillConsoleOutputCharacterW(g_con, L' ', g_term_w, pos, &written);
-    // Also reset character attributes on the row so stale colors don't linger.
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    if (GetConsoleScreenBufferInfo(g_con, &csbi))
-        FillConsoleOutputAttribute(g_con, csbi.wAttributes, g_term_w, pos, &written);
+    WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
 }
 
 static void tui_hide_cursor(void)
@@ -4018,59 +4020,45 @@ static void tui_dbg(const char *fmt, ...)
     fflush(g_tui_debug);
 }
 
-// Repaint the scrolling log region from the circular buffer using
-// WriteConsoleOutputCharacterA: writes plain chars at an exact (x,y)
-// position, does not move the cursor, does not wrap at EOL, and does
-// not interpret escape sequences. This is the only robust way to paint
-// a region of the Win32 console without touching pinned rows.
+// Repaint the scrolling log region from the circular buffer using ONLY
+// VT escape sequences via WriteConsoleA. This works correctly in
+// ConPTY-based terminals (Windows Terminal, VSCode) which may not
+// translate WriteConsoleOutputCharacterA position writes into
+// corresponding terminal updates.
 static void tui_repaint_log(void)
 {
     int visible = g_log_bottom - g_log_top + 1;
     if (visible <= 0) return;
     int start = (g_log_count > visible) ? (g_log_count - visible) : 0;
 
-    tui_dbg("repaint: count=%d top=%d bot=%d vis=%d start=%d",
-            g_log_count, g_log_top, g_log_bottom, visible, start);
+    // Save cursor, then for each visible row: position, clear-to-EOL,
+    // and write the plain line (ANSI-stripped so byte count == visible
+    // count and truncation is predictable). Finally restore cursor.
+    char out[4096];
+    int off = 0;
+    off += snprintf(out + off, sizeof(out) - off, "\033[?25l\033[s");
 
     for (int i = 0; i < visible; i++) {
-        SHORT row = (SHORT)(g_log_top + i);
-        tui_clear_row(row);
+        int row = g_log_top + i + 1;  // VT is 1-indexed
         int idx = start + i;
         if (idx < g_log_count) {
             char plain[TUI_LINE_MAX];
             strip_ansi(plain, sizeof plain, g_log_buf[idx % TUI_LOG_BUF]);
-            DWORD written;
-            COORD pos; pos.X = 0; pos.Y = row;
-            DWORD n = (DWORD)strlen(plain);
-            if (n > (DWORD)g_term_w) n = (DWORD)g_term_w;
-            WriteConsoleOutputCharacterA(g_con, plain, n, pos, &written);
-            tui_dbg("  row %2d idx %2d wrote %lu: %.60s", row, idx,
-                    (unsigned long)written, plain);
+            int avail = g_term_w;
+            if ((int)strlen(plain) > avail) plain[avail] = 0;
+            off += snprintf(out + off, sizeof(out) - off,
+                            "\033[%d;1H\033[2K%s", row, plain);
+        } else {
+            off += snprintf(out + off, sizeof(out) - off,
+                            "\033[%d;1H\033[2K", row);
+        }
+        if (off > (int)sizeof(out) - 300) {
+            tui_write(out);
+            off = 0;
         }
     }
-    // Dump what the console buffer actually looks like at rows 8..log_top+2
-    // so we can see if something is clobbering the top of the log region.
-    {
-        CONSOLE_SCREEN_BUFFER_INFO csbi;
-        if (GetConsoleScreenBufferInfo(g_con, &csbi)) {
-            tui_dbg("  post: win=(%d,%d)-(%d,%d) cur=(%d,%d)",
-                    csbi.srWindow.Left, csbi.srWindow.Top,
-                    csbi.srWindow.Right, csbi.srWindow.Bottom,
-                    csbi.dwCursorPosition.X, csbi.dwCursorPosition.Y);
-            for (SHORT r = 7; r <= g_log_top + 1 && r < g_term_h; r++) {
-                char readbuf[200];
-                DWORD nread;
-                COORD p; p.X = 0; p.Y = r;
-                ReadConsoleOutputCharacterA(g_con, readbuf,
-                    (DWORD)(g_term_w < 120 ? g_term_w : 120), p, &nread);
-                readbuf[nread] = 0;
-                // trim trailing spaces
-                int e = (int)nread - 1;
-                while (e >= 0 && readbuf[e] == ' ') { readbuf[e] = 0; e--; }
-                tui_dbg("  read row %2d: |%s|", r, readbuf);
-            }
-        }
-    }
+    off += snprintf(out + off, sizeof(out) - off, "\033[u");
+    tui_write(out);
 }
 
 // Log every header paint so we can correlate with log repaint timing.
