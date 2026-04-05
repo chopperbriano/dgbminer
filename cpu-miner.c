@@ -3686,56 +3686,23 @@ static void enable_windows_vt_mode(void)
  * 'q' / 'Q' and triggers a clean exit.
  * -------------------------------------------------------------------------- */
 
-#define STATUS_ROWS 5
+#define STATUS_ROWS 6
 
 // g_last_hashrate / g_last_hr_units / g_status_mode are declared near
 // proper_exit() so report_summary_log() and proper_exit() can see them.
 
-// Query the current console window height (rows). Returns 0 on failure.
-static int get_console_rows(void)
-{
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (h == INVALID_HANDLE_VALUE) return 0;
-    if (!GetConsoleScreenBufferInfo(h, &csbi)) return 0;
-    return csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
-}
-
-static int g_menu_row = 0;  // cached terminal row for bottom menu bar
-
-static void paint_menu_bar(void)
-{
-    if (!g_status_mode || g_menu_row <= 0) return;
-    pthread_mutex_lock(&applog_lock);
-    printf("\033[s");                            // save cursor
-    printf("\033[%d;1H", g_menu_row);            // move to bottom row
-    printf("\033[K" CL_CY2
-           " [" CL_YL2 "Q" CL_CY2 "] Quit   "
-           "[" CL_YL2 "Ctrl+C" CL_CY2 "] Abort   "
-           "[" CL_YL2 "mining on testnet" CL_CY2 "]"
-           CL_WHT);
-    printf("\033[u");                            // restore cursor
-    fflush(stdout);
-    pthread_mutex_unlock(&applog_lock);
-}
-
 static void setup_status_region(void)
 {
-    int rows = get_console_rows();
-    if (rows < STATUS_ROWS + 4) rows = STATUS_ROWS + 4;
-    g_menu_row = rows;
-
     // Clear screen, home cursor.
     printf("\033[2J\033[H");
-    // Set DECSTBM scroll region: top = STATUS_ROWS+2, bottom = rows-1
-    // (last row reserved for the bottom menu bar).
-    printf("\033[%d;%dr", STATUS_ROWS + 2, rows - 1);
+    // Set DECSTBM scroll region starting below the status box. No bottom
+    // reservation — the menu line lives inside the status box itself so
+    // we don't depend on terminal-height detection.
+    printf("\033[%d;r", STATUS_ROWS + 2);
     // Move cursor to just below the status block so log lines start there.
     printf("\033[%d;1H", STATUS_ROWS + 2);
     fflush(stdout);
     g_status_mode = TRUE;
-
-    paint_menu_bar();
 }
 
 static void reset_status_region(void)
@@ -3745,7 +3712,6 @@ static void reset_status_region(void)
     printf("\033[r\n");
     fflush(stdout);
     g_status_mode = FALSE;
-    g_menu_row = 0;
 }
 
 // Format seconds as e.g. "3h 17m 42s" / "17m 42s" / "42s"
@@ -3759,21 +3725,41 @@ static void fmt_uptime(char *buf, size_t n, long secs)
     else snprintf(buf, n, "%lds", s);
 }
 
+// Box layout: total width 68 chars = '|' + 66 content + '|'.
+#define STATUS_BOX_INNER 66
+
+// Print one content row: pipes with color, content trimmed/padded to exactly
+// STATUS_BOX_INNER chars via %-66.66s (min width 66, max width 66).
+static void print_status_row(const char *content)
+{
+    printf("\033[K" CL_CYN "|" CL_WHT "%-66.66s" CL_CYN "|" CL_WHT "\n",
+           content);
+}
+
+static void print_status_border(void)
+{
+    printf("\033[K" CL_CYN
+           "+------------------------------------------------------------------+"
+           CL_WHT "\n");
+}
+
 static void paint_status_header(void)
 {
     extern struct   timeval session_start;
-    extern BOOL  opt_quiet;
     struct timeval now, uptime_tv;
-    char upt[32];
+    char upt[24];
+    char row[STATUS_BOX_INNER + 4];
+    char hr[16];
+    char url_trunc[56];
     long accepted_pct = 0;
     const char *algo_name = algo_names[opt_algo] ? algo_names[opt_algo] : "?";
     const char *url       = rpc_url ? rpc_url : "(none)";
+    size_t url_len;
 
     if (!g_status_mode) return;
 
     gettimeofday(&now, NULL);
     if (session_start.tv_sec == 0) {
-        // Miner hasn't started yet (still in option parsing / setup).
         snprintf(upt, sizeof upt, "--");
     } else {
         timeval_subtract(&uptime_tv, &now, &session_start);
@@ -3783,58 +3769,57 @@ static void paint_status_header(void)
     if (submitted_share_count > 0)
         accepted_pct = (100 * accepted_share_count) / submitted_share_count;
 
+    snprintf(hr, sizeof hr, "%.2f %sh/s",
+             g_last_hashrate,
+             g_last_hr_units[0] ? g_last_hr_units : "");
+
+    url_len = strlen(url);
+    if (url_len > 44)
+        snprintf(url_trunc, sizeof url_trunc, "%.41s...", url);
+    else
+        snprintf(url_trunc, sizeof url_trunc, "%s", url);
+
     pthread_mutex_lock(&applog_lock);
 
-    // Save cursor, home, paint 5 rows (clearing each to EOL), restore cursor.
+    // Save cursor, home, paint 6 rows, restore cursor.
     printf("\033[s");
     printf("\033[1;1H");
-    // row 1
-    printf("\033[K" CL_CYN
-           "+------------------------------------------------------------------+"
-           CL_WHT "\n");
-    // row 2 - title + algo + uptime
-    printf("\033[K" CL_CYN "|" CL_WHT
-           " " CL_GRN "dgbminer for Windows 1.0" CL_WHT
-           "  [" CL_YL2 "%-8s" CL_WHT "]"
-           "  Up: %-12s"
-           "                       " CL_CYN "|" CL_WHT "\n",
-           algo_name, upt);
-    // row 3 - hash rate + share counts
-    printf("\033[K" CL_CYN "|" CL_WHT
-           " Hash: " CL_GRN "%6.2f %-2sh/s" CL_WHT
-           "   Submitted: %-5u"
-           "  " CL_GRN "Acc: %-5u" CL_WHT
-           "  " CL_RED "Rej: %-5u" CL_WHT
-           " (%3ld%%)     " CL_CYN "|" CL_WHT "\n",
-           g_last_hashrate, g_last_hr_units,
-           (unsigned)submitted_share_count,
-           (unsigned)accepted_share_count,
-           (unsigned)rejected_share_count,
-           accepted_pct);
-    // row 4 - pool url + blocks solved
-    {
-        char url_trunc[56];
-        size_t url_len = strlen(url);
-        if (url_len > 55) {
-            snprintf(url_trunc, sizeof url_trunc, "%.52s...", url);
-        } else {
-            snprintf(url_trunc, sizeof url_trunc, "%s", url);
-        }
-        printf("\033[K" CL_CYN "|" CL_WHT
-               " Pool: %-55s  Solved: " CL_LMA "%-4u" CL_WHT
-               "   " CL_CYN "|" CL_WHT "\n",
-               url_trunc, (unsigned)solved_block_count);
-    }
-    // row 5
-    printf("\033[K" CL_CYN
-           "+------------------------------------------------------------------+"
-           CL_WHT "\n");
+
+    print_status_border();
+
+    // Row 2: title + algo + uptime
+    snprintf(row, sizeof row,
+        " dgbminer for Windows 1.0   Algo: %-8s   Up: %s",
+        algo_name, upt);
+    print_status_row(row);
+
+    // Row 3: hashrate + share counts
+    snprintf(row, sizeof row,
+        " Hash: %-14s  Sub:%5u  Acc:%5u  Rej:%5u (%ld%%)",
+        hr,
+        (unsigned)submitted_share_count,
+        (unsigned)accepted_share_count,
+        (unsigned)rejected_share_count,
+        accepted_pct);
+    print_status_row(row);
+
+    // Row 4: pool url + blocks solved
+    snprintf(row, sizeof row,
+        " Pool: %-44s   Solved:%4u",
+        url_trunc, (unsigned)solved_block_count);
+    print_status_row(row);
+
+    // Row 5: menu line
+    snprintf(row, sizeof row,
+        " [Q] Quit    [Ctrl+C] Abort    Mining on testnet");
+    print_status_row(row);
+
+    print_status_border();
 
     printf("\033[u");
     fflush(stdout);
 
     pthread_mutex_unlock(&applog_lock);
-    (void)opt_quiet;
 }
 
 static void *keyboard_watcher_thread(void *arg)
