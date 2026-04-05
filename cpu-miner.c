@@ -4003,6 +4003,18 @@ static void strip_ansi(char *out, size_t dst_max, const char *in)
     out[j] = 0;
 }
 
+static FILE *g_tui_debug = NULL;
+static void tui_dbg(const char *fmt, ...)
+{
+    if (!g_tui_debug) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(g_tui_debug, fmt, ap);
+    va_end(ap);
+    fputc('\n', g_tui_debug);
+    fflush(g_tui_debug);
+}
+
 // Repaint the scrolling log region from the circular buffer using
 // WriteConsoleOutputCharacterA: writes plain chars at an exact (x,y)
 // position, does not move the cursor, does not wrap at EOL, and does
@@ -4013,6 +4025,9 @@ static void tui_repaint_log(void)
     int visible = g_log_bottom - g_log_top + 1;
     if (visible <= 0) return;
     int start = (g_log_count > visible) ? (g_log_count - visible) : 0;
+
+    tui_dbg("repaint: count=%d top=%d bot=%d vis=%d start=%d",
+            g_log_count, g_log_top, g_log_bottom, visible, start);
 
     for (int i = 0; i < visible; i++) {
         SHORT row = (SHORT)(g_log_top + i);
@@ -4026,6 +4041,8 @@ static void tui_repaint_log(void)
             DWORD n = (DWORD)strlen(plain);
             if (n > (DWORD)g_term_w) n = (DWORD)g_term_w;
             WriteConsoleOutputCharacterA(g_con, plain, n, pos, &written);
+            tui_dbg("  row %2d idx %2d wrote %lu: %.60s", row, idx,
+                    (unsigned long)written, plain);
         }
     }
 }
@@ -4089,6 +4106,10 @@ static void tui_init(void)
     tui_query_size();
     g_log_count = 0;
     g_tui_active = TRUE;
+
+    g_tui_debug = fopen("dgbminer_tui.log", "w");
+    tui_dbg("tui_init: term=%dx%d log_top=%d log_bot=%d",
+            g_term_w, g_term_h, g_log_top, g_log_bottom);
 
     tui_clear_screen();
     tui_hide_cursor();
