@@ -60,6 +60,20 @@ set(DGB_SOURCES
 
     compat/getopt/getopt_long.c
     compat/winansi.c
+    compat/legacy_iob.c
+
+    # Jansson (JSON) built from bundled source — the jansson.lib in
+    # compat/lib is an import lib requiring jansson.dll at runtime.
+    compat/jansson/dump.c
+    compat/jansson/error.c
+    compat/jansson/hashtable.c
+    compat/jansson/load.c
+    compat/jansson/memory.c
+    compat/jansson/pack_unpack.c
+    compat/jansson/strbuffer.c
+    compat/jansson/strconv.c
+    compat/jansson/utf.c
+    compat/jansson/value.c
 )
 
 add_executable(dgbminer ${DGB_SOURCES})
@@ -131,7 +145,7 @@ target_link_directories(dgbminer PRIVATE ${DGB_LIBDIR_X64} ${DGB_LIBDIR})
 target_link_libraries(dgbminer PRIVATE
     ${DGB_LIBDIR_X64}/pthreadVC3.lib
     ${DGB_LIBDIR_X64}/libcurl_a.lib
-    ${DGB_LIBDIR}/jansson.lib
+    # jansson built from source above, not linked from prebuilt .lib
     # Windows system libs required by static libcurl + winsock
     ws2_32
     wldap32
@@ -139,7 +153,34 @@ target_link_libraries(dgbminer PRIVATE
     normaliz
     advapi32
     user32
+    # Legacy CRT shim: bundled libcurl_a.lib was built against older MSVC
+    # runtime that references __iob_func; this lib provides the shim.
+    legacy_stdio_definitions
 )
+
+# ---------------------------------------------------------------------------
+# OpenSSL (required by the static libcurl_a.lib we bundle)
+#
+# Install via vcpkg:
+#   git clone https://github.com/microsoft/vcpkg.git C:/vcpkg
+#   C:/vcpkg/bootstrap-vcpkg.bat
+#   C:/vcpkg/vcpkg install openssl:x64-windows-static
+#
+# Configure this project with:
+#   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+#   -DVCPKG_TARGET_TRIPLET=x64-windows-static
+#
+# Or let us find it at the conventional location:
+# ---------------------------------------------------------------------------
+if(NOT TARGET OpenSSL::SSL)
+    if(EXISTS "C:/vcpkg/installed/x64-windows-static/lib/libcrypto.lib")
+        set(OPENSSL_ROOT_DIR "C:/vcpkg/installed/x64-windows-static")
+        set(OPENSSL_USE_STATIC_LIBS TRUE)
+    endif()
+    find_package(OpenSSL REQUIRED)
+endif()
+
+target_link_libraries(dgbminer PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 # ---------------------------------------------------------------------------
 # Copy pthread DLL next to the exe at build time (runtime dep of pthreadVC3)
