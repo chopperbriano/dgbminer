@@ -2867,11 +2867,16 @@ out:
 
 static void show_credits()
 {
-   printf("\nDGB cpuminer 1.0\n");
-   printf("A Digibyte optimized cpu miner.\n");
-   printf("sha256d, scrypt, skein, qubit and odocrypt..\n");
-   printf("Github: https://github.com/Jongjan88/dgbminer\n");
-   printf("--------------------------------------------\n\n");
+   printf("\n");
+   printf("  +----------------------------------------------+\n");
+   printf("  |                                              |\n");
+   printf("  |   dgbminer 1.0                               |\n");
+   printf("  |   A DigiByte-optimized CPU miner             |\n");
+   printf("  |                                              |\n");
+   printf("  |   Algos: sha256d, scrypt, skein, qubit, odo  |\n");
+   printf("  |   https://github.com/chopperbriano/dgbminer  |\n");
+   printf("  |                                              |\n");
+   printf("  +----------------------------------------------+\n\n");
 }
 
 #define check_cpu_capability() cpu_capability( FALSE )
@@ -2947,12 +2952,14 @@ static BOOL  cpu_capability( BOOL  display_only )
      cpu_brand_string( cpu_brand );
      printf( "CPU: %s\n", cpu_brand );
 
-     printf("SW built on " __DATE__
+     printf("SW built on " __DATE__);
      #ifdef _MSC_VER
-         " with VC++ 2013\n");
+        printf(" with MSVC %d.%02d.%d\n",
+               _MSC_VER / 100, _MSC_VER % 100,
+               _MSC_FULL_VER % 100000);
      #elif defined(__GNUC__)
-         " with GCC");
-        printf(" %d.%d.%d\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+        printf(" with GCC %d.%d.%d\n",
+               __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
      #else
         printf("\n");
      #endif
@@ -3056,12 +3063,14 @@ static BOOL  cpu_capability( BOOL  display_only )
         
 void show_version_and_exit(void)
 {
-        printf("\n built on " __DATE__
+        printf("\n built on " __DATE__);
 #ifdef _MSC_VER
-         " with VC++ 2013\n");
+        printf(" with MSVC %d.%02d.%d\n",
+               _MSC_VER / 100, _MSC_VER % 100,
+               _MSC_FULL_VER % 100000);
 #elif defined(__GNUC__)
-         " with GCC");
-        printf(" %d.%d.%d\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+        printf(" with GCC %d.%d.%d\n",
+               __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
 #endif
 
         printf(" features:"
