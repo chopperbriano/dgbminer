@@ -3750,7 +3750,9 @@ static SHORT            g_term_w       = 80;
 static SHORT            g_term_h       = 25;
 static SHORT            g_log_top      = TUI_HEADER_ROWS;
 static SHORT            g_log_bottom   = 23;
-static SHORT            g_log_row      = TUI_HEADER_ROWS;
+// g_log_row was used by the old scroll-based approach; the circular
+// buffer renderer keeps no explicit cursor — it just repaints the whole
+// log region on each new line.
 static BOOL             g_debug_enabled = FALSE;
 
 extern BOOL opt_debug;
@@ -3836,30 +3838,6 @@ static void tui_query_size(void)
 }
 
 // Scroll the log region up by one row, blanking the new bottom row.
-static void tui_scroll_log_up(void)
-{
-    SMALL_RECT src;
-    SMALL_RECT clip;
-    COORD      dest;
-    CHAR_INFO  fill;
-
-    src.Left   = 0;
-    src.Top    = (SHORT)(g_log_top + 1);
-    src.Right  = (SHORT)(g_term_w - 1);
-    src.Bottom = g_log_bottom;
-
-    clip = src;
-    clip.Top = g_log_top;
-
-    dest.X = 0;
-    dest.Y = g_log_top;
-
-    fill.Char.UnicodeChar = L' ';
-    fill.Attributes = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-
-    ScrollConsoleScreenBufferW(g_con, &src, &clip, dest, &fill);
-}
-
 // Paint the sticky header at rows 0..TUI_HEADER_ROWS-1.
 static void tui_paint_header(void)
 {
@@ -3991,7 +3969,37 @@ static void tui_paint_menu(void)
            CL_WHT);
 }
 
-// applog writer: drop a log line into the scrolling log region.
+// Circular buffer of recent log lines. Instead of scrolling the console
+// buffer (which turned out to interact badly with concurrent header
+// refreshes and leave trailing garbage), we store the last N lines and
+// repaint the whole log region on every new line. Simple, robust, and
+// fast enough for a mining log.
+#define TUI_LOG_BUF 256
+#define TUI_LINE_MAX 512
+static char g_log_buf[TUI_LOG_BUF][TUI_LINE_MAX];
+static int  g_log_count = 0;  // total lines received, wraps via modulo
+
+// Repaint the scrolling log region from the circular buffer with the
+// newest line at the bottom.
+static void tui_repaint_log(void)
+{
+    int visible = g_log_bottom - g_log_top + 1;
+    if (visible <= 0) return;
+    int start = (g_log_count > visible) ? (g_log_count - visible) : 0;
+
+    for (int i = 0; i < visible; i++) {
+        SHORT row = (SHORT)(g_log_top + i);
+        tui_clear_row(row);
+        int idx = start + i;
+        if (idx < g_log_count) {
+            const char *s = g_log_buf[idx % TUI_LOG_BUF];
+            tui_goto(0, row);
+            tui_writef("%s" CL_N, s);
+        }
+    }
+}
+
+// applog writer: append one log line, scroll in place, repaint.
 static void tui_log_writer(const char *line)
 {
     size_t len = strlen(line);
@@ -4009,15 +4017,16 @@ static void tui_log_writer(const char *line)
 
     pthread_mutex_lock(&g_tui_lock);
 
-    if (g_log_row > g_log_bottom) {
-        tui_scroll_log_up();
-        g_log_row = g_log_bottom;
-    }
+    // Store in circular buffer, truncating to row width.
+    int slot = g_log_count % TUI_LOG_BUF;
+    size_t maxlen = (size_t)g_term_w;
+    if (maxlen >= TUI_LINE_MAX) maxlen = TUI_LINE_MAX - 1;
+    if (copy > maxlen) copy = maxlen;
+    memcpy(g_log_buf[slot], buf, copy);
+    g_log_buf[slot][copy] = 0;
+    g_log_count++;
 
-    tui_clear_row(g_log_row);
-    tui_goto(0, g_log_row);
-    tui_writef("%s" CL_N, buf);
-    g_log_row++;
+    tui_repaint_log();
 
     pthread_mutex_unlock(&g_tui_lock);
 }
@@ -4047,7 +4056,7 @@ static void tui_init(void)
     g_con = GetStdHandle(STD_OUTPUT_HANDLE);
     pthread_mutex_init(&g_tui_lock, NULL);
     tui_query_size();
-    g_log_row = g_log_top;
+    g_log_count = 0;
     g_tui_active = TRUE;
 
     tui_clear_screen();
@@ -4055,7 +4064,7 @@ static void tui_init(void)
 
     tui_paint_header();
     tui_paint_menu();
-    tui_goto(0, g_log_row);
+    tui_goto(0, g_log_top);
 
     // Route applog output through the TUI's scrolling log region.
     log_writer = tui_log_writer;
