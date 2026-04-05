@@ -2941,7 +2941,7 @@ static void show_credits()
    printf("\n");
    printf("  +----------------------------------------------+\n");
    printf("  |                                              |\n");
-   printf("  |   dgbminer for Windows  1.0                  |\n");
+   printf("  |   dgbminer for Windows  1.1                  |\n");
    printf("  |   A DigiByte-optimized CPU miner             |\n");
    printf("  |                                              |\n");
    printf("  |   Algos: sha256d, scrypt, skein, qubit, odo  |\n");
@@ -3941,7 +3941,7 @@ static void tui_paint_header(void)
     // Row 1: title
     tui_goto(0, 1);
     tui_clear_row(1);
-    tui_writef(" " CL_GRN "dgbminer for Windows 1.0" CL_WHT
+    tui_writef(" " CL_GRN "dgbminer for Windows 1.1" CL_WHT
            " - DigiByte CPU miner (testnet)         "
            "Level: %s%s" CL_WHT,
            opt_debug ? CL_YL2 : CL_GR2,
