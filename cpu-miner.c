@@ -4034,35 +4034,31 @@ static void tui_repaint_log(void)
     tui_dbg("repaint: count=%d top=%d bot=%d start=%d",
             g_log_count, g_log_top, g_log_bottom, start);
 
-    // Save cursor, then for each visible row: position, clear-to-EOL,
-    // and write the plain line (ANSI-stripped so byte count == visible
-    // count and truncation is predictable). Finally restore cursor.
-    char out[4096];
-    int off = 0;
-    off += snprintf(out + off, sizeof(out) - off, "\033[?25l\033[s");
-
+    // Reset scroll region to whole screen, then paint each row
+    // independently via a single WriteConsoleA per row. Simpler than
+    // batching and immune to scroll-region state left behind by
+    // anything else.
+    char seq[TUI_LINE_MAX + 64];
+    tui_write("\033[r");
     for (int i = 0; i < visible; i++) {
-        int row = g_log_top + i + 1;  // VT is 1-indexed
+        int row = g_log_top + i + 1;  // VT 1-indexed
         int idx = start + i;
         if (idx < g_log_count) {
             char plain[TUI_LINE_MAX];
             strip_ansi(plain, sizeof plain, g_log_buf[idx % TUI_LOG_BUF]);
             int avail = g_term_w;
             if ((int)strlen(plain) > avail) plain[avail] = 0;
-            off += snprintf(out + off, sizeof(out) - off,
-                            "\033[%d;1H\033[2K%s", row, plain);
+            int n = snprintf(seq, sizeof seq,
+                             "\033[%d;1H\033[2K%s", row, plain);
+            DWORD written;
+            WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
             tui_dbg("  VT row=%d idx=%d: %.70s", row, idx, plain);
         } else {
-            off += snprintf(out + off, sizeof(out) - off,
-                            "\033[%d;1H\033[2K", row);
-        }
-        if (off > (int)sizeof(out) - 300) {
-            tui_write(out);
-            off = 0;
+            int n = snprintf(seq, sizeof seq, "\033[%d;1H\033[2K", row);
+            DWORD written;
+            WriteConsoleA(g_con, seq, (DWORD)n, &written, NULL);
         }
     }
-    off += snprintf(out + off, sizeof(out) - off, "\033[u");
-    tui_write(out);
 }
 
 // Log every header paint so we can correlate with log repaint timing.
@@ -4156,6 +4152,9 @@ static void tui_init(void)
             g_term_w, g_term_h, g_log_top, g_log_bottom);
 
     tui_clear_screen();
+    // Reset scroll region + attributes in case a previous process left
+    // DECSTBM / colors in a weird state.
+    tui_write("\033[r\033[0m");
 
     {
         CONSOLE_SCREEN_BUFFER_INFO csbi;
