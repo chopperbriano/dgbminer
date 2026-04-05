@@ -83,6 +83,13 @@ BOOL  opt_debug = FALSE;
 BOOL  opt_debug_diff = FALSE;
 BOOL  opt_protocol = FALSE;
 BOOL  opt_benchmark = FALSE;
+
+// DGB MultiAlgo + connection state, populated by the workio thread and
+// read (non-atomically; values are tiny and stale reads are acceptable)
+// by the TUI header paint.
+char g_block_algo[16]   = {0};   // algo the node wants for the next block
+int  g_algo_mismatch    = 0;     // non-zero when our -a differs from g_block_algo
+int  g_rpc_failures     = 0;     // consecutive RPC-call failures (0 = connected)
 BOOL  opt_redirect = TRUE;
 BOOL  opt_extranonce = TRUE;
 BOOL  want_longpoll = FALSE;
@@ -597,6 +604,25 @@ static BOOL  gbt_work_decode( const json_t *val, struct work *work )
       goto out;
    }
    work->height = (int) json_integer_value( tmp );
+
+   // DGB MultiAlgo: each block expects a specific PoW algorithm.
+   // Extract it so we can warn / refuse to submit when the user's
+   // -a flag doesn't match what digibyted wants for this block.
+   {
+      json_t *pa = json_object_get( val, "pow_algo" );
+      if ( pa && json_is_string( pa ) )
+      {
+         const char *expected = json_string_value( pa );
+         if ( expected && algo_names[opt_algo] )
+         {
+            extern char g_block_algo[16];
+            extern int  g_algo_mismatch;
+            strncpy( g_block_algo, expected, sizeof g_block_algo - 1 );
+            g_block_algo[sizeof g_block_algo - 1] = 0;
+            g_algo_mismatch = strcasecmp( expected, algo_names[opt_algo] ) != 0;
+         }
+      }
+   }
 
    tmp = json_object_get(val, "version");
    if ( !tmp || !json_is_integer( tmp ) )
@@ -1752,6 +1778,7 @@ static BOOL  workio_get_work( struct workio_cmd *wc, CURL *curl )
    /* obtain new work from bitcoin via JSON-RPC */
    while ( !get_upstream_work( curl, work_heap ) )
    {
+      g_rpc_failures++;  // TUI header reads this for DISCONNECTED indicator
       if ( unlikely( ( opt_retries >= 0 ) && ( ++failures > opt_retries ) ) )
       {
          applog( LOG_ERR, "json_rpc_call failed, terminating workio thread" );
@@ -1764,6 +1791,7 @@ static BOOL  workio_get_work( struct workio_cmd *wc, CURL *curl )
               opt_fail_pause );
       sleep( opt_fail_pause );
    }
+   g_rpc_failures = 0;  // reset once work comes through
 
    /* send work to requesting thread */
    if ( !tq_push(wc->thr->q, work_heap ) )
@@ -1930,7 +1958,25 @@ BOOL  submit_solution( struct work *work, const void *hash,
 // Job went stale during hashing of a valid share.
 //   if ( !opt_quiet && work_restart[ thr->id ].restart )
 //      applog( LOG_INFO, CL_LBL "Share may be stale, submitting anyway..." CL_N );
-   
+
+   // DGB MultiAlgo: if digibyted told us this block wants a different
+   // algorithm than the one we were launched with, don't waste an RPC
+   // round-trip on a share that will come back as 'high-hash'. Log once
+   // per event so the user understands why they're not seeing accepts.
+   if ( g_algo_mismatch )
+   {
+      static int mismatch_logged = 0;
+      if ( !mismatch_logged )
+      {
+         applog( LOG_WARNING,
+                 "block wants '%s' but miner is running '%s' — skipping submit. "
+                 "Relaunch with -a %s to mine this algo.",
+                 g_block_algo, algo_names[opt_algo], g_block_algo );
+         mismatch_logged = 1;
+      }
+      return FALSE;
+   }
+
    work->sharediff = hash_to_diff( hash );
    if ( likely( submit_work( thr, work ) ) )
    {
@@ -3901,12 +3947,32 @@ static void tui_paint_header(void)
            opt_debug ? CL_YL2 : CL_GR2,
            opt_debug ? "DEBUG" : "INFO ");
 
-    // Row 2: credit line
+    // Row 2: connection + algo match status
     tui_goto(0, 2);
     tui_clear_row(2);
-    tui_writef("\033[K " CL_GRY
-           "Port by chopperbriano | based on Jongjan88/dgbminer (cpuminer-opt fork)"
-           CL_WHT);
+    {
+        extern char g_block_algo[16];
+        extern int  g_algo_mismatch;
+        extern int  g_rpc_failures;
+        const char *conn_col = (g_rpc_failures == 0) ? CL_GR2 : CL_RED;
+        const char *conn_txt = (g_rpc_failures == 0) ? "CONNECTED   "
+                                                     : "DISCONNECTED";
+        if ( g_block_algo[0] ) {
+            const char *algo_col = g_algo_mismatch ? CL_RED : CL_GR2;
+            const char *algo_tag = g_algo_mismatch ? "MISMATCH" : "match   ";
+            tui_writef(" RPC: %s%s" CL_WHT
+                       "   Block wants: " CL_YL2 "%-8s" CL_WHT
+                       " vs -a " CL_YL2 "%-8s" CL_WHT
+                       " [%s%s" CL_WHT "]",
+                       conn_col, conn_txt, g_block_algo,
+                       algo_names[opt_algo] ? algo_names[opt_algo] : "?",
+                       algo_col, algo_tag);
+        } else {
+            tui_writef(" RPC: %s%s" CL_WHT
+                       "   (waiting for first block)",
+                       conn_col, conn_txt);
+        }
+    }
 
     // Row 3: separator
     tui_goto(0, 3);
