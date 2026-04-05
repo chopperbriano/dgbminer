@@ -1,6 +1,6 @@
-# dgbminer
+# dgbminer for Windows
 
-A DigiByte-optimized CPU miner. Supports **sha256d**, **scrypt**, **skein**, **qubit**, and **odocrypt**.
+A DigiByte-optimized CPU miner — **Windows x64 build**. Supports **sha256d**, **scrypt**, **skein**, **qubit**, and **odocrypt**.
 
 Derived from [Jongjan88/dgbminer](https://github.com/Jongjan88/dgbminer) (a cpuminer-opt fork).
 This fork has been ported to build with **MSVC on Windows x64** via **CMake + VSCode**.

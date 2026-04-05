@@ -2870,7 +2870,7 @@ static void show_credits()
    printf("\n");
    printf("  +----------------------------------------------+\n");
    printf("  |                                              |\n");
-   printf("  |   dgbminer 1.0                               |\n");
+   printf("  |   dgbminer for Windows  1.0                  |\n");
    printf("  |   A DigiByte-optimized CPU miner             |\n");
    printf("  |                                              |\n");
    printf("  |   Algos: sha256d, scrypt, skein, qubit, odo  |\n");
