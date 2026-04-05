@@ -4180,6 +4180,8 @@ static void tui_init(void)
 static void tui_shutdown(void)
 {
     if (!g_tui_active) return;
+    tui_dbg("SHUTDOWN CALLED!  active=%d log_writer=%p",
+            g_tui_active, (void*)log_writer);
     g_tui_active = FALSE;
     log_writer = NULL;
     tui_show_cursor();

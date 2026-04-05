@@ -394,7 +394,7 @@ void   applog2(int prio, const char *fmt, ...);
 // log lines instead of printf/vfprintf to stdout. Non-NULL means an
 // alternate log sink is active (e.g. the Win32 Console TUI's scrolling
 // log region). When NULL, log lines go to stdout normally.
-extern void (*log_writer)(const char *line);
+extern void (* volatile log_writer)(const char *line);
 
 void   restart_threads(void);
 extern json_t *json_rpc_call( CURL *curl, const char *url, const char *userpass,

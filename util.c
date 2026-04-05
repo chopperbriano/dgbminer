@@ -261,7 +261,7 @@ void applog(int prio, const char *fmt, ...)
 	va_end(ap);
 }
 
-void (*log_writer)(const char *line) = NULL;
+void (* volatile log_writer)(const char *line) = NULL;
 
 void log_sw_err( char* filename, int line_number, char* msg )
 {
