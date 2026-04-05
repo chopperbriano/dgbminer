@@ -2906,6 +2906,41 @@ static void show_credits()
 
 #define check_cpu_capability() cpu_capability( FALSE )
 #define display_cpu_capability() cpu_capability( TRUE )
+
+// Line buffer that accumulates partial printf output and flushes a whole
+// line via applog() whenever a newline is hit. Used by cpu_capability()
+// so its hardware-info output lands in the scrolling log region of the
+// Win32 TUI instead of raw-printing past the pinned header.
+static char cap_line_buf[512] = {0};
+static void cap_printf(const char *fmt, ...)
+{
+    char tmp[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(tmp, sizeof tmp, fmt, ap);
+    va_end(ap);
+
+    const char *p = tmp;
+    for (;;) {
+        const char *nl = strchr(p, '\n');
+        if (!nl) {
+            size_t cur = strlen(cap_line_buf);
+            strncat(cap_line_buf, p, sizeof(cap_line_buf) - cur - 1);
+            break;
+        }
+        size_t cur = strlen(cap_line_buf);
+        size_t want = (size_t)(nl - p);
+        if (want > sizeof(cap_line_buf) - cur - 1)
+            want = sizeof(cap_line_buf) - cur - 1;
+        memcpy(cap_line_buf + cur, p, want);
+        cap_line_buf[cur + want] = 0;
+        applog(LOG_NOTICE, "%s", cap_line_buf);
+        cap_line_buf[0] = 0;
+        p = nl + 1;
+        if (!*p) break;
+    }
+}
+
 static BOOL  cpu_capability( BOOL  display_only )
 {
      char cpu_brand[0x40];
@@ -2971,87 +3006,87 @@ static BOOL  cpu_capability( BOOL  display_only )
 
 
 //     #if !((__AES__) || (__SSE2__))
-//         printf("Neither __AES__ nor __SSE2__ defined.\n");
+//         cap_printf("Neither __AES__ nor __SSE2__ defined.\n");
 //     #endif
 
      cpu_brand_string( cpu_brand );
-     printf( "CPU: %s\n", cpu_brand );
+     cap_printf( "CPU: %s\n", cpu_brand );
 
-     printf("SW built on " __DATE__);
+     cap_printf("SW built on " __DATE__);
      #ifdef _MSC_VER
-        printf(" with MSVC %d.%02d.%d\n",
+        cap_printf(" with MSVC %d.%02d.%d\n",
                _MSC_VER / 100, _MSC_VER % 100,
                _MSC_FULL_VER % 100000);
      #elif defined(__GNUC__)
-        printf(" with GCC %d.%d.%d\n",
+        cap_printf(" with GCC %d.%d.%d\n",
                __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
      #else
-        printf("\n");
+        cap_printf("\n");
      #endif
 
-     printf("CPU features: ");
-     if      ( cpu_has_avx512 )    printf( " AVX512" );
-     else if ( cpu_has_avx2   )    printf( " AVX2  " );
-     else if ( cpu_has_avx    )    printf( " AVX   " );
-     else if ( cpu_has_sse42  )    printf( " SSE4.2" );
-     else if ( cpu_has_sse2   )    printf( " SSE2  " );
-     if      ( cpu_has_vaes   )    printf( " VAES"   );
-     else if ( cpu_has_aes    )    printf( "  AES"   );
-     if      ( cpu_has_sha    )    printf( " SHA"    );
+     cap_printf("CPU features: ");
+     if      ( cpu_has_avx512 )    cap_printf( " AVX512" );
+     else if ( cpu_has_avx2   )    cap_printf( " AVX2  " );
+     else if ( cpu_has_avx    )    cap_printf( " AVX   " );
+     else if ( cpu_has_sse42  )    cap_printf( " SSE4.2" );
+     else if ( cpu_has_sse2   )    cap_printf( " SSE2  " );
+     if      ( cpu_has_vaes   )    cap_printf( " VAES"   );
+     else if ( cpu_has_aes    )    cap_printf( "  AES"   );
+     if      ( cpu_has_sha    )    cap_printf( " SHA"    );
 
-     printf("\nSW features:  ");
-     if      ( sw_has_avx512 )    printf( " AVX512" );
-     else if ( sw_has_avx2   )    printf( " AVX2  " );
-     else if ( sw_has_avx    )    printf( " AVX   " );
-     else if ( sw_has_sse42  )    printf( " SSE4.2" );
-     else if ( sw_has_sse2   )    printf( " SSE2  " );
-     if      ( sw_has_vaes   )    printf( " VAES"   );
-     else if ( sw_has_aes    )    printf( "  AES"   );
-     if      ( sw_has_sha    )    printf( " SHA"    );
+     cap_printf("\nSW features:  ");
+     if      ( sw_has_avx512 )    cap_printf( " AVX512" );
+     else if ( sw_has_avx2   )    cap_printf( " AVX2  " );
+     else if ( sw_has_avx    )    cap_printf( " AVX   " );
+     else if ( sw_has_sse42  )    cap_printf( " SSE4.2" );
+     else if ( sw_has_sse2   )    cap_printf( " SSE2  " );
+     if      ( sw_has_vaes   )    cap_printf( " VAES"   );
+     else if ( sw_has_aes    )    cap_printf( "  AES"   );
+     if      ( sw_has_sha    )    cap_printf( " SHA"    );
 
      if ( !display_only )
      {
-        printf("\nAlgo features:");
-        if ( algo_features == EMPTY_SET ) printf( " None" );
+        cap_printf("\nAlgo features:");
+        if ( algo_features == EMPTY_SET ) cap_printf( " None" );
         else
         {
-           if      ( algo_has_avx512 )  printf( " AVX512" );
-           else if ( algo_has_avx2   )  printf( " AVX2  " );
-           else if ( algo_has_sse42  )  printf( " SSE4.2" );
-           else if ( algo_has_sse2   )  printf( " SSE2  " );
-           if      ( algo_has_vaes   )  printf( " VAES"   );
-           else if ( algo_has_aes    )  printf( "  AES"   );
-           if      ( algo_has_sha    )  printf( " SHA"    );
+           if      ( algo_has_avx512 )  cap_printf( " AVX512" );
+           else if ( algo_has_avx2   )  cap_printf( " AVX2  " );
+           else if ( algo_has_sse42  )  cap_printf( " SSE4.2" );
+           else if ( algo_has_sse2   )  cap_printf( " SSE2  " );
+           if      ( algo_has_vaes   )  cap_printf( " VAES"   );
+           else if ( algo_has_aes    )  cap_printf( "  AES"   );
+           if      ( algo_has_sha    )  cap_printf( " SHA"    );
         }
      }
-     printf("\n");
+     cap_printf("\n");
 
      if ( display_only ) return TRUE;
 
      // Check for CPU and build incompatibilities
      if ( !cpu_has_sse2 )
      {
-        printf( "A CPU with SSE2 is required to use cpuminer-opt\n" );
+        cap_printf( "A CPU with SSE2 is required to use cpuminer-opt\n" );
         return FALSE;
      }
      if ( sw_has_avx2 && !( cpu_has_avx2 && cpu_has_aes ) )
      {
-        printf( "The SW build requires a CPU with AES and AVX2!\n" );
+        cap_printf( "The SW build requires a CPU with AES and AVX2!\n" );
         return FALSE;
      }
      if ( sw_has_sse42 && !cpu_has_sse42 )
      {
-        printf( "The SW build requires a CPU with SSE4.2!\n" );
+        cap_printf( "The SW build requires a CPU with SSE4.2!\n" );
         return FALSE;
      }
      if ( sw_has_aes && !cpu_has_aes )
      {
-        printf( "The SW build requires a CPU with AES!\n" );
+        cap_printf( "The SW build requires a CPU with AES!\n" );
         return FALSE;
      }
      if ( sw_has_sha && !cpu_has_sha )
      {
-        printf( "The SW build requires a CPU with SHA!\n" );
+        cap_printf( "The SW build requires a CPU with SHA!\n" );
         return FALSE;
      }
 
@@ -3068,20 +3103,20 @@ static BOOL  cpu_capability( BOOL  display_only )
                 || use_avx2 || use_sha || use_vaes );
 
      // Display best options
-     printf( "\nStarting miner with" );
-     if         ( use_none ) printf( " no optimizations" );
+     cap_printf( "\nStarting miner with" );
+     if         ( use_none ) cap_printf( " no optimizations" );
      else
      {
-        if      ( use_avx512 ) printf( " AVX512" );
-        else if ( use_avx2   ) printf( " AVX2"   );
-        else if ( use_avx    ) printf( " AVX"    );
-        else if ( use_sse42  ) printf( " SSE42"  );
-        else if ( use_sse2   ) printf( " SSE2"   );
-        if      ( use_vaes   ) printf( " VAES"   );
-        else if ( use_aes    ) printf( " AES"    );
-        if      ( use_sha    ) printf( " SHA"    );
+        if      ( use_avx512 ) cap_printf( " AVX512" );
+        else if ( use_avx2   ) cap_printf( " AVX2"   );
+        else if ( use_avx    ) cap_printf( " AVX"    );
+        else if ( use_sse42  ) cap_printf( " SSE42"  );
+        else if ( use_sse2   ) cap_printf( " SSE2"   );
+        if      ( use_vaes   ) cap_printf( " VAES"   );
+        else if ( use_aes    ) cap_printf( " AES"    );
+        if      ( use_sha    ) cap_printf( " SHA"    );
      }
-     printf( "...\n\n" );
+     cap_printf( "...\n\n" );
 
      return TRUE;
 }
@@ -3736,6 +3771,26 @@ static void tui_goto(SHORT x, SHORT y)
     SetConsoleCursorPosition(g_con, p);
 }
 
+// Write straight to the Win32 console, bypassing stdio *and* the
+// compat/winansi.c ANSI emulator that is installed as a printf macro
+// for the rest of the project. With VT100 processing enabled (via
+// enable_windows_vt_mode) Windows handles ANSI color codes natively.
+static void tui_write(const char *s)
+{
+    DWORD written;
+    WriteConsoleA(g_con, s, (DWORD)strlen(s), &written, NULL);
+}
+
+static void tui_writef(const char *fmt, ...)
+{
+    char buf[2048];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    tui_write(buf);
+}
+
 static void tui_query_size(void)
 {
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -3814,32 +3869,32 @@ static void tui_paint_header(void)
 
     // Row 0: top border
     tui_goto(0, 0);
-    printf("\033[K" CL_CYN
+    tui_writef("\033[K" CL_CYN
            "================================================================================"
            CL_WHT);
 
     // Row 1: title
     tui_goto(0, 1);
-    printf("\033[K " CL_GRN "dgbminer for Windows 1.0" CL_WHT
+    tui_writef("\033[K " CL_GRN "dgbminer for Windows 1.0" CL_WHT
            " - DigiByte CPU miner (testnet)             "
            CL_GRY "%s" CL_WHT,
            opt_debug ? "[debug]" : "       ");
 
     // Row 2: credit line
     tui_goto(0, 2);
-    printf("\033[K " CL_GRY
+    tui_writef("\033[K " CL_GRY
            "Port by chopperbriano | based on Jongjan88/dgbminer (cpuminer-opt fork)"
            CL_WHT);
 
     // Row 3: separator
     tui_goto(0, 3);
-    printf("\033[K" CL_CYN
+    tui_writef("\033[K" CL_CYN
            "--------------------------------------------------------------------------------"
            CL_WHT);
 
     // Row 4: algo + uptime + hash — 8-char labels for colon alignment
     tui_goto(0, 4);
-    printf("\033[K " CL_YL2 "%-8s" CL_WHT "%-20s"
+    tui_writef("\033[K " CL_YL2 "%-8s" CL_WHT "%-20s"
            CL_YL2 "%-5s" CL_WHT "%-18s"
            CL_YL2 "%-6s" CL_WHT CL_GRN "%s" CL_WHT,
            "Algo:", algo_name,
@@ -3848,7 +3903,7 @@ static void tui_paint_header(void)
 
     // Row 5: shares + solved
     tui_goto(0, 5);
-    printf("\033[K " CL_YL2 "%-8s" CL_WHT
+    tui_writef("\033[K " CL_YL2 "%-8s" CL_WHT
            "Sub %-5u  " CL_GRN "Acc %-5u" CL_WHT
            "  " CL_RED "Rej %-5u" CL_WHT "  (%3ld%%)       "
            CL_YL2 "%-8s" CL_WHT CL_LMA "%-4u" CL_WHT,
@@ -3868,31 +3923,29 @@ static void tui_paint_header(void)
             snprintf(url_show, sizeof url_show, "%.65s...", url);
         else
             snprintf(url_show, sizeof url_show, "%s", url);
-        printf("\033[K " CL_YL2 "%-8s" CL_WHT "%s", "Pool:", url_show);
+        tui_writef("\033[K " CL_YL2 "%-8s" CL_WHT "%s", "Pool:", url_show);
     }
 
     // Row 7: bottom border
     tui_goto(0, 7);
-    printf("\033[K" CL_CYN
+    tui_writef("\033[K" CL_CYN
            "================================================================================"
            CL_WHT);
 
     // Row 8: blank separator
     tui_goto(0, 8);
-    printf("\033[K");
-    fflush(stdout);
+    tui_writef("\033[K");
 }
 
 // Paint the menu bar at the last terminal row.
 static void tui_paint_menu(void)
 {
     tui_goto(0, (SHORT)(g_term_h - 1));
-    printf("\033[K" CL_CY2
+    tui_writef("\033[K" CL_CY2
            " [" CL_YL2 "Q" CL_CY2 "] Quit    "
            "[" CL_YL2 "L" CL_CY2 "] Toggle debug    "
            "[" CL_YL2 "Ctrl+C" CL_CY2 "] Abort"
            CL_WHT);
-    fflush(stdout);
 }
 
 // applog writer: drop a log line into the scrolling log region.
@@ -3903,8 +3956,7 @@ static void tui_log_writer(const char *line)
     size_t copy = (len > 0 && line[len-1] == '\n') ? len - 1 : len;
 
     if (!g_tui_active) {
-        fputs(line, stdout);
-        fflush(stdout);
+        tui_write(line);
         return;
     }
 
@@ -3920,8 +3972,7 @@ static void tui_log_writer(const char *line)
     }
 
     tui_goto(0, g_log_row);
-    printf("\033[K%s" CL_N, buf);
-    fflush(stdout);
+    tui_writef("\033[K%s" CL_N, buf);
     g_log_row++;
 
     pthread_mutex_unlock(&g_tui_lock);
@@ -3943,8 +3994,7 @@ static void tui_clear_screen(void)
     SetConsoleCursorPosition(g_con, origin);
 
     // Also tell VT: clear-screen + clear-scrollback + home.
-    printf("\033[2J\033[3J\033[H");
-    fflush(stdout);
+    tui_write("\033[2J\033[3J\033[H");
 }
 
 // Install the TUI: clear screen, paint header + menu, redirect applog.
@@ -3973,8 +4023,7 @@ static void tui_shutdown(void)
     g_tui_active = FALSE;
     log_writer = NULL;
     tui_goto(0, (SHORT)(g_term_h - 1));
-    printf("\n");
-    fflush(stdout);
+    tui_write("\r\n");
 }
 
 // Periodic header refresh thread (1 Hz) so Up/Hash/counters stay live.
