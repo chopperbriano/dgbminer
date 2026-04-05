@@ -58,6 +58,7 @@
 
 //#include "miner.h"
 #include "algo-gate-api.h"
+#include "multialgo.h"
 
 #ifdef WIN32
 #include "compat/winansi.h"
@@ -597,6 +598,14 @@ static BOOL  gbt_work_decode( const json_t *val, struct work *work )
       goto out;
    }
    work->height = (int) json_integer_value( tmp );
+
+   // DGB MultiAlgo: tell the multialgo unit which algo the node wants
+   // for this block so it can flag a mismatch against the user's -a.
+   {
+      json_t *pa = json_object_get( val, "pow_algo" );
+      if ( pa && json_is_string( pa ) )
+         ma_set_block_algo( json_string_value( pa ), algo_names[opt_algo] );
+   }
 
    tmp = json_object_get(val, "version");
    if ( !tmp || !json_is_integer( tmp ) )
@@ -1930,6 +1939,19 @@ BOOL  submit_solution( struct work *work, const void *hash,
 // Job went stale during hashing of a valid share.
 //   if ( !opt_quiet && work_restart[ thr->id ].restart )
 //      applog( LOG_INFO, CL_LBL "Share may be stale, submitting anyway..." CL_N );
+
+   // DGB MultiAlgo: skip submit when this block wants a different algo
+   // than we were launched with. Prevents 'high-hash' reject spam.
+   if ( ma_should_skip_submit() )
+   {
+      if ( ma_take_warning_slot() )
+         applog( LOG_WARNING,
+                 "block wants '%s' but miner is running '%s'; skipping submit. "
+                 "Relaunch with -a %s to mine this algo.",
+                 ma_get_block_algo(), algo_names[opt_algo],
+                 ma_get_block_algo() );
+      return FALSE;
+   }
 
    work->sharediff = hash_to_diff( hash );
    if ( likely( submit_work( thr, work ) ) )

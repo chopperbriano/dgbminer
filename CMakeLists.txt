@@ -27,6 +27,7 @@ set(DGB_SOURCES
     api.c
     cpu-miner.c
     malloc-huge.c
+    multialgo.c
     util.c
 
     algo/cubehash/cubehash_sse2.c
