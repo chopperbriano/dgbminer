@@ -3686,23 +3686,57 @@ static void enable_windows_vt_mode(void)
  * 'q' / 'Q' and triggers a clean exit.
  * -------------------------------------------------------------------------- */
 
+#define BANNER_ROWS 11
 #define STATUS_ROWS 6
+#define LOG_START_ROW (BANNER_ROWS + STATUS_ROWS + 2)
 
 // g_last_hashrate / g_last_hr_units / g_status_mode are declared near
 // proper_exit() so report_summary_log() and proper_exit() can see them.
+
+// Paint the welcome banner at fixed rows 1..BANNER_ROWS using explicit
+// cursor addressing so it stays pinned at the top of the screen.
+static void paint_banner_pinned(void)
+{
+    printf("\033[s");
+    printf("\033[1;1H\033[K");
+    printf("\033[2;1H\033[K" CL_CYN
+           "  +----------------------------------------------+" CL_WHT);
+    printf("\033[3;1H\033[K" CL_CYN "  |" CL_WHT
+           "                                              " CL_CYN "|" CL_WHT);
+    printf("\033[4;1H\033[K" CL_CYN "  |" CL_WHT "   " CL_GRN
+           "dgbminer for Windows  1.0" CL_WHT
+           "                  " CL_CYN "|" CL_WHT);
+    printf("\033[5;1H\033[K" CL_CYN "  |" CL_WHT
+           "   A DigiByte-optimized CPU miner             " CL_CYN "|" CL_WHT);
+    printf("\033[6;1H\033[K" CL_CYN "  |" CL_WHT
+           "                                              " CL_CYN "|" CL_WHT);
+    printf("\033[7;1H\033[K" CL_CYN "  |" CL_WHT
+           "   Algos: sha256d, scrypt, skein, qubit, odo  " CL_CYN "|" CL_WHT);
+    printf("\033[8;1H\033[K" CL_CYN "  |" CL_WHT
+           "   https://github.com/chopperbriano/dgbminer  " CL_CYN "|" CL_WHT);
+    printf("\033[9;1H\033[K" CL_CYN "  |" CL_WHT
+           "                                              " CL_CYN "|" CL_WHT);
+    printf("\033[10;1H\033[K" CL_CYN
+           "  +----------------------------------------------+" CL_WHT);
+    printf("\033[11;1H\033[K");
+    printf("\033[u");
+    fflush(stdout);
+}
 
 static void setup_status_region(void)
 {
     // Clear screen, home cursor.
     printf("\033[2J\033[H");
-    // Set DECSTBM scroll region starting below the status box. No bottom
-    // reservation — the menu line lives inside the status box itself so
-    // we don't depend on terminal-height detection.
-    printf("\033[%d;r", STATUS_ROWS + 2);
-    // Move cursor to just below the status block so log lines start there.
-    printf("\033[%d;1H", STATUS_ROWS + 2);
+    // Set DECSTBM scroll region: log starts below banner + status + blank row.
+    printf("\033[%d;r", LOG_START_ROW);
+    // Move cursor to log region start.
+    printf("\033[%d;1H", LOG_START_ROW);
     fflush(stdout);
     g_status_mode = TRUE;
+
+    // Paint the pinned regions.
+    paint_banner_pinned();
+    paint_status_header();
 }
 
 static void reset_status_region(void)
@@ -3781,9 +3815,9 @@ static void paint_status_header(void)
 
     pthread_mutex_lock(&applog_lock);
 
-    // Save cursor, home, paint 6 rows, restore cursor.
+    // Save cursor, position below banner, paint 6 rows, restore cursor.
     printf("\033[s");
-    printf("\033[1;1H");
+    printf("\033[%d;1H", BANNER_ROWS + 1);
 
     print_status_border();
 
@@ -3863,7 +3897,6 @@ int main(int argc, char *argv[])
 		// watcher that listens for 'q' / 'Q'.
 		pthread_t kbd_thr;
 		setup_status_region();
-		paint_status_header();
 		pthread_create(&kbd_thr, NULL, keyboard_watcher_thread, NULL);
 		pthread_detach(kbd_thr);
 	}
