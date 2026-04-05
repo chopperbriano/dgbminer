@@ -2917,7 +2917,7 @@ static void show_credits()
    printf("\n");
    printf("  +----------------------------------------------+\n");
    printf("  |                                              |\n");
-   printf("  |   dgbminer for Windows  1.0                  |\n");
+   printf("  |   dgbminer for Windows  1.1                  |\n");
    printf("  |   A DigiByte-optimized CPU miner             |\n");
    printf("  |                                              |\n");
    printf("  |   Algos: sha256d, scrypt, skein, qubit, odo  |\n");
@@ -3917,7 +3917,7 @@ static void tui_paint_header(void)
     // Row 1: title
     tui_goto(0, 1);
     tui_clear_row(1);
-    tui_writef(" " CL_GRN "dgbminer for Windows 1.0" CL_WHT
+    tui_writef(" " CL_GRN "dgbminer for Windows 1.1" CL_WHT
            " - DigiByte CPU miner (testnet)         "
            "Level: %s%s" CL_WHT,
            opt_debug ? CL_YL2 : CL_GR2,
@@ -3937,15 +3937,29 @@ static void tui_paint_header(void)
            "--------------------------------------------------------------------------------"
            CL_WHT);
 
-    // Row 4: algo + uptime + hash — 8-char labels for colon alignment
+    // Row 4: algo + uptime + hash — 8-char labels for colon alignment.
+    // When the node's block wants a different algo than the user's -a,
+    // show " (block wants xxx)" in red after the algo name.
     tui_goto(0, 4);
     tui_clear_row(4);
-    tui_writef("\033[K " CL_YL2 "%-8s" CL_WHT "%-20s"
-           CL_YL2 "%-5s" CL_WHT "%-18s"
-           CL_YL2 "%-6s" CL_WHT CL_GRN "%s" CL_WHT,
-           "Algo:", algo_name,
-           "Up:",   upt,
-           "Hash:", hr);
+    {
+        char algo_field[40];
+        const char *algo_col = CL_WHT;
+        if ( ma_get_mismatch() ) {
+            algo_col = CL_RED;
+            snprintf(algo_field, sizeof algo_field,
+                     "%s (block wants %s)",
+                     algo_name, ma_get_block_algo());
+        } else {
+            snprintf(algo_field, sizeof algo_field, "%s", algo_name);
+        }
+        tui_writef("\033[K " CL_YL2 "%-8s" "%s%-30s" CL_WHT
+               CL_YL2 "%-5s" CL_WHT "%-14s"
+               CL_YL2 "%-6s" CL_WHT CL_GRN "%s" CL_WHT,
+               "Algo:", algo_col, algo_field,
+               "Up:",   upt,
+               "Hash:", hr);
+    }
 
     // Row 5: shares + solved
     tui_goto(0, 5);
@@ -4096,9 +4110,12 @@ static void tui_log_writer(const char *line)
 
     pthread_mutex_lock(&g_tui_lock);
 
-    // Store in circular buffer, truncating to row width.
+    // Store in circular buffer. Truncate to (g_term_w - 1) so the line
+    // fits strictly INSIDE the terminal width — writing exactly g_term_w
+    // chars triggers the terminal's auto-wrap at the last column, pushing
+    // subsequent repaints onto the wrong row.
     int slot = g_log_count % TUI_LOG_BUF;
-    size_t maxlen = (size_t)g_term_w;
+    size_t maxlen = (size_t)g_term_w - 1;
     if (maxlen >= TUI_LINE_MAX) maxlen = TUI_LINE_MAX - 1;
     if (copy > maxlen) copy = maxlen;
     memcpy(g_log_buf[slot], buf, copy);
