@@ -3692,35 +3692,34 @@ static void enable_windows_vt_mode(void)
 // g_last_hashrate / g_last_hr_units / g_status_mode are declared near
 // proper_exit() so report_summary_log() and proper_exit() can see them.
 
-static void setup_status_region(void)
-{
-    // Clear screen, home cursor.
-    printf("\033[2J\033[H");
-    fflush(stdout);
-    g_status_mode = TRUE;
+/* ==========================================================================
+ * Win32 Console TUI (top(1)-style)
+ *
+ *   rows 0 .. HEADER_ROWS-1     : pinned status header (updated in place)
+ *   rows HEADER_ROWS .. H-2     : scrolling log region
+ *   row  H-1                    : pinned menu bar (Q quit, L log level)
+ *
+ * Uses the Win32 Console API directly (SetConsoleCursorPosition /
+ * ScrollConsoleScreenBufferW) so it works identically in legacy cmd.exe,
+ * Windows Terminal, and VSCode integrated terminal. ANSI color codes are
+ * still emitted via printf - VT processing is enabled at startup.
+ * ========================================================================== */
 
-    // Prime the header by painting it at the top once.
-    paint_status_header();
+#define TUI_HEADER_ROWS 8
+#define TUI_MENU_ROWS   1
 
-    // Hook applog so the header is re-painted at HOME after every log
-    // line is flushed. In legacy consoles (cmd.exe) that do not honor
-    // the DECSTBM scroll region, the screen scrolls up when new lines
-    // push past the bottom; this hook puts the header back on top each
-    // time so it remains visible.
-    post_log_hook = paint_status_header;
-}
+static HANDLE           g_con          = INVALID_HANDLE_VALUE;
+static pthread_mutex_t  g_tui_lock;
+static BOOL             g_tui_active   = FALSE;
+static SHORT            g_term_w       = 80;
+static SHORT            g_term_h       = 25;
+static SHORT            g_log_top      = TUI_HEADER_ROWS;
+static SHORT            g_log_bottom   = 23;
+static SHORT            g_log_row      = TUI_HEADER_ROWS;
+static BOOL             g_debug_enabled = FALSE;
 
-static void reset_status_region(void)
-{
-    if (!g_status_mode) return;
-    // Unhook the log repaint and reset scroll region (if any).
-    post_log_hook = NULL;
-    printf("\033[r\n");
-    fflush(stdout);
-    g_status_mode = FALSE;
-}
+extern BOOL opt_debug;
 
-// Format seconds as e.g. "3h 17m 42s" / "17m 42s" / "42s"
 static void fmt_uptime(char *buf, size_t n, long secs)
 {
     long h = secs / 3600;
@@ -3731,43 +3730,65 @@ static void fmt_uptime(char *buf, size_t n, long secs)
     else snprintf(buf, n, "%lds", s);
 }
 
-// Box layout: total width 68 chars = '|' + 66 content + '|'.
-#define STATUS_BOX_INNER 66
-
-// Print one content row: pipes with color, content trimmed/padded to exactly
-// STATUS_BOX_INNER chars via %-66.66s (min width 66, max width 66).
-static void print_status_row(const char *content)
+static void tui_goto(SHORT x, SHORT y)
 {
-    printf("\033[K" CL_CYN "|" CL_WHT "%-66.66s" CL_CYN "|" CL_WHT "\n",
-           content);
+    COORD p; p.X = x; p.Y = y;
+    SetConsoleCursorPosition(g_con, p);
 }
 
-static void print_status_border(void)
+static void tui_query_size(void)
 {
-    printf("\033[K" CL_CYN
-           "+------------------------------------------------------------------+"
-           CL_WHT "\n");
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (GetConsoleScreenBufferInfo(g_con, &csbi)) {
+        g_term_w = csbi.srWindow.Right  - csbi.srWindow.Left + 1;
+        g_term_h = csbi.srWindow.Bottom - csbi.srWindow.Top  + 1;
+    }
+    if (g_term_h < TUI_HEADER_ROWS + TUI_MENU_ROWS + 2) g_term_h = TUI_HEADER_ROWS + TUI_MENU_ROWS + 2;
+    if (g_term_w < 40) g_term_w = 40;
+    g_log_top    = TUI_HEADER_ROWS;
+    g_log_bottom = g_term_h - TUI_MENU_ROWS - 1;
 }
 
-static void paint_status_header(void)
+// Scroll the log region up by one row, blanking the new bottom row.
+static void tui_scroll_log_up(void)
 {
-    extern struct   timeval session_start;
+    SMALL_RECT src;
+    SMALL_RECT clip;
+    COORD      dest;
+    CHAR_INFO  fill;
+
+    src.Left   = 0;
+    src.Top    = (SHORT)(g_log_top + 1);
+    src.Right  = (SHORT)(g_term_w - 1);
+    src.Bottom = g_log_bottom;
+
+    clip = src;
+    clip.Top = g_log_top;
+
+    dest.X = 0;
+    dest.Y = g_log_top;
+
+    fill.Char.UnicodeChar = L' ';
+    fill.Attributes = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+
+    ScrollConsoleScreenBufferW(g_con, &src, &clip, dest, &fill);
+}
+
+// Paint the sticky header at rows 0..TUI_HEADER_ROWS-1.
+static void tui_paint_header(void)
+{
+    extern struct timeval session_start;
     struct timeval now, uptime_tv;
     char upt[24];
-    char row[STATUS_BOX_INNER + 4];
-    char hr[16];
-    char url_trunc[56];
-    long accepted_pct = 0;
+    char hr[20];
     const char *algo_name = algo_names[opt_algo] ? algo_names[opt_algo] : "?";
     const char *url       = rpc_url ? rpc_url : "(none)";
-    size_t url_len;
-
-    if (!g_status_mode) return;
+    long accepted_pct = 0;
 
     gettimeofday(&now, NULL);
-    if (session_start.tv_sec == 0) {
+    if (session_start.tv_sec == 0)
         snprintf(upt, sizeof upt, "--");
-    } else {
+    else {
         timeval_subtract(&uptime_tv, &now, &session_start);
         fmt_uptime(upt, sizeof upt, uptime_tv.tv_sec);
     }
@@ -3779,87 +3800,180 @@ static void paint_status_header(void)
              g_last_hashrate,
              g_last_hr_units[0] ? g_last_hr_units : "");
 
-    url_len = strlen(url);
-    if (url_len > 44)
-        snprintf(url_trunc, sizeof url_trunc, "%.41s...", url);
-    else
-        snprintf(url_trunc, sizeof url_trunc, "%s", url);
+    tui_goto(0, 0);
+    printf("\033[K" CL_CYN
+           "================================================================================"
+           CL_WHT);
 
-    pthread_mutex_lock(&applog_lock);
+    tui_goto(0, 1);
+    printf("\033[K" CL_CYN " " CL_GRN "dgbminer for Windows 1.0" CL_WHT
+           " - DigiByte CPU miner (testnet)"
+           "        " CL_GRY "%s" CL_WHT,
+           opt_debug ? "[debug]" : "       ");
 
-    // Save cursor, home, paint 10 rows (using \n so it works even if
-    // per-row cursor positioning is unsupported by the host terminal),
-    // restore cursor.
-    printf("\033[s");
-    printf("\033[1;1H");
+    tui_goto(0, 2);
+    printf("\033[K" CL_CYN
+           "--------------------------------------------------------------------------------"
+           CL_WHT);
 
-    print_status_border();
+    tui_goto(0, 3);
+    printf("\033[K " CL_YL2 "Algo:" CL_WHT " %-10s   "
+           CL_YL2 "Up:" CL_WHT " %-14s   "
+           CL_YL2 "Hash:" CL_WHT " " CL_GRN "%-16s" CL_WHT,
+           algo_name, upt, hr);
 
-    // Title band (3 rows, centered-ish text, plain)
-    snprintf(row, sizeof row,
-        "                    dgbminer for Windows 1.0");
-    print_status_row(row);
-    snprintf(row, sizeof row,
-        "                  A DigiByte-optimized CPU miner");
-    print_status_row(row);
-    snprintf(row, sizeof row,
-        "           https://github.com/chopperbriano/dgbminer");
-    print_status_row(row);
+    tui_goto(0, 4);
+    printf("\033[K " CL_YL2 "Shares:" CL_WHT "  "
+           "Sub " CL_WHT "%-5u  "
+           CL_GRN "Acc %-5u" CL_WHT "  "
+           CL_RED "Rej %-5u" CL_WHT "  "
+           "(%ld%%)   "
+           CL_YL2 "Solved:" CL_WHT " " CL_LMA "%-4u" CL_WHT,
+           (unsigned)submitted_share_count,
+           (unsigned)accepted_share_count,
+           (unsigned)rejected_share_count,
+           accepted_pct,
+           (unsigned)solved_block_count);
 
-    print_status_border();
+    tui_goto(0, 5);
+    {
+        char url_show[72];
+        size_t len = strlen(url);
+        if (len > 70)
+            snprintf(url_show, sizeof url_show, "%.67s...", url);
+        else
+            snprintf(url_show, sizeof url_show, "%s", url);
+        printf("\033[K " CL_YL2 "Pool:" CL_WHT " %s", url_show);
+    }
 
-    // Live stats band (3 rows)
-    snprintf(row, sizeof row,
-        " Algo: %-8s     Up: %s",
-        algo_name, upt);
-    print_status_row(row);
+    tui_goto(0, 6);
+    printf("\033[K" CL_CYN
+           "================================================================================"
+           CL_WHT);
 
-    snprintf(row, sizeof row,
-        " Hash: %-14s  Sub:%5u  Acc:%5u  Rej:%5u (%ld%%)",
-        hr,
-        (unsigned)submitted_share_count,
-        (unsigned)accepted_share_count,
-        (unsigned)rejected_share_count,
-        accepted_pct);
-    print_status_row(row);
+    tui_goto(0, 7);
+    printf("\033[K");  // blank separator
+    fflush(stdout);
+}
 
-    snprintf(row, sizeof row,
-        " Pool: %-44s   Solved:%4u",
-        url_trunc, (unsigned)solved_block_count);
-    print_status_row(row);
+// Paint the menu bar at the last terminal row.
+static void tui_paint_menu(void)
+{
+    tui_goto(0, (SHORT)(g_term_h - 1));
+    printf("\033[K" CL_CY2
+           " [" CL_YL2 "Q" CL_CY2 "] Quit    "
+           "[" CL_YL2 "L" CL_CY2 "] Toggle debug    "
+           "[" CL_YL2 "Ctrl+C" CL_CY2 "] Abort"
+           CL_WHT);
+    fflush(stdout);
+}
 
-    print_status_border();
+// applog writer: drop a log line into the scrolling log region.
+static void tui_log_writer(const char *line)
+{
+    size_t len = strlen(line);
+    char buf[2048];
+    size_t copy = (len > 0 && line[len-1] == '\n') ? len - 1 : len;
 
-    // Menu row
-    snprintf(row, sizeof row,
-        " [Q] Quit    [Ctrl+C] Abort    Mining on testnet");
-    print_status_row(row);
+    if (!g_tui_active) {
+        fputs(line, stdout);
+        fflush(stdout);
+        return;
+    }
 
-    print_status_border();
+    if (copy >= sizeof buf) copy = sizeof buf - 1;
+    memcpy(buf, line, copy);
+    buf[copy] = 0;
 
-    printf("\033[u");
+    pthread_mutex_lock(&g_tui_lock);
+
+    if (g_log_row > g_log_bottom) {
+        tui_scroll_log_up();
+        g_log_row = g_log_bottom;
+    }
+
+    tui_goto(0, g_log_row);
+    printf("\033[K%s" CL_N, buf);
+    fflush(stdout);
+    g_log_row++;
+
+    pthread_mutex_unlock(&g_tui_lock);
+}
+
+// Install the TUI: clear screen, paint header + menu, redirect applog.
+static void tui_init(void)
+{
+    g_con = GetStdHandle(STD_OUTPUT_HANDLE);
+    pthread_mutex_init(&g_tui_lock, NULL);
+    tui_query_size();
+    g_log_row = g_log_top;
+    g_tui_active = TRUE;
+
+    // Clear entire screen.
+    printf("\033[2J");
     fflush(stdout);
 
-    pthread_mutex_unlock(&applog_lock);
+    tui_paint_header();
+    tui_paint_menu();
+    tui_goto(0, g_log_row);
+
+    // Route applog output through the TUI's scrolling log region.
+    log_writer = tui_log_writer;
+}
+
+// Tear down the TUI: restore cursor, stop redirecting applog.
+static void tui_shutdown(void)
+{
+    if (!g_tui_active) return;
+    g_tui_active = FALSE;
+    log_writer = NULL;
+    tui_goto(0, (SHORT)(g_term_h - 1));
+    printf("\n");
+    fflush(stdout);
+}
+
+// Periodic header refresh thread (1 Hz) so Up/Hash/counters stay live.
+static void *tui_header_thread(void *arg)
+{
+    (void)arg;
+    while (g_tui_active) {
+        pthread_mutex_lock(&g_tui_lock);
+        if (g_tui_active) tui_paint_header();
+        pthread_mutex_unlock(&g_tui_lock);
+        Sleep(1000);
+    }
+    return NULL;
 }
 
 static void *keyboard_watcher_thread(void *arg)
 {
     (void)arg;
-    for (;;) {
+    while (g_tui_active) {
         if (_kbhit()) {
             int ch = _getch();
             if (ch == 'q' || ch == 'Q') {
-                reset_status_region();
+                tui_shutdown();
                 applog(LOG_NOTICE, "'q' pressed, exiting");
                 proper_exit(0);
                 return NULL;
             }
+            if (ch == 'l' || ch == 'L') {
+                opt_debug = !opt_debug;
+                g_debug_enabled = opt_debug;
+                applog(LOG_NOTICE, "log level: %s",
+                       opt_debug ? "debug" : "info");
+            }
         }
-        Sleep(100);
+        Sleep(80);
     }
     return NULL;
 }
+
+// Backwards-compat wrappers so the rest of cpu-miner.c that already
+// calls paint_status_header() / reset_status_region() still works.
+static void paint_status_header(void) { if (g_tui_active) tui_paint_header(); }
+static void reset_status_region(void) { tui_shutdown(); }
+#define setup_status_region() tui_init()
 
 #endif /* WIN32 */
 
@@ -3877,14 +3991,16 @@ int main(int argc, char *argv[])
 
 #if defined(WIN32)
 	{
-		// Pin the unified HEADER_ROWS header at the top of the terminal,
-		// scroll log output below it, and start a background thread that
-		// watches for 'q' / 'Q' to trigger clean exit. The header itself
-		// replaces show_credits()'s banner in this mode.
-		pthread_t kbd_thr;
-		setup_status_region();
+		// Install the top(1)-style TUI and start two background threads:
+		// one that watches stdin for 'Q' (quit) and 'L' (toggle debug),
+		// one that refreshes the header at 1 Hz so Up/Hash/counters
+		// stay live.
+		pthread_t kbd_thr, hdr_thr;
+		tui_init();
 		pthread_create(&kbd_thr, NULL, keyboard_watcher_thread, NULL);
 		pthread_detach(kbd_thr);
+		pthread_create(&hdr_thr, NULL, tui_header_thread, NULL);
+		pthread_detach(hdr_thr);
 	}
 #else
 	show_credits();

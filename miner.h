@@ -390,11 +390,11 @@ extern BOOL opt_verify;
 void   applog(int prio, const char *fmt, ...);
 void   applog2(int prio, const char *fmt, ...);
 
-// Optional hook invoked by applog()/applog2() after each log line is
-// flushed. Used to re-paint the sticky top header immediately after the
-// terminal scrolls, so it remains visible in legacy consoles that do
-// not honor DECSTBM scroll regions.
-extern void (*post_log_hook)(void);
+// Installed hook that applog()/applog2() use to emit fully-formatted
+// log lines instead of printf/vfprintf to stdout. Non-NULL means an
+// alternate log sink is active (e.g. the Win32 Console TUI's scrolling
+// log region). When NULL, log lines go to stdout normally.
+extern void (*log_writer)(const char *line);
 
 void   restart_threads(void);
 extern json_t *json_rpc_call( CURL *curl, const char *url, const char *userpass,

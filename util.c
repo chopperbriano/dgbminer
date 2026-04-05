@@ -149,13 +149,17 @@ void applog2( int prio, const char *fmt, ... )
          fmt,
          use_colors ? CL_N : ""
       );
-      pthread_mutex_lock(&applog_lock);
-      vfprintf(stdout, f, ap);   /* atomic write to stdout */
-      fflush(stdout);
+      if (log_writer) {
+         char buf[2048];
+         vsnprintf(buf, sizeof buf, f, ap);
+         log_writer(buf);
+      } else {
+         pthread_mutex_lock(&applog_lock);
+         vfprintf(stdout, f, ap);   /* atomic write to stdout */
+         fflush(stdout);
+         pthread_mutex_unlock(&applog_lock);
+      }
       free(f);
-      pthread_mutex_unlock(&applog_lock);
-
-      if (post_log_hook) post_log_hook();
    }
    va_end(ap);
 }
@@ -229,18 +233,22 @@ void applog(int prio, const char *fmt, ...)
 			fmt,
 			use_colors ? CL_N : ""
 		);
-		pthread_mutex_lock(&applog_lock);
-		vfprintf(stdout, f, ap);	/* atomic write to stdout */
-		fflush(stdout);
+		if (log_writer) {
+			char buf[2048];
+			vsnprintf(buf, sizeof buf, f, ap);
+			log_writer(buf);
+		} else {
+			pthread_mutex_lock(&applog_lock);
+			vfprintf(stdout, f, ap);	/* atomic write to stdout */
+			fflush(stdout);
+			pthread_mutex_unlock(&applog_lock);
+		}
 		free(f);
-		pthread_mutex_unlock(&applog_lock);
-
-		if (post_log_hook) post_log_hook();
 	}
 	va_end(ap);
 }
 
-void (*post_log_hook)(void) = NULL;
+void (*log_writer)(const char *line) = NULL;
 
 void log_sw_err( char* filename, int line_number, char* msg )
 {
