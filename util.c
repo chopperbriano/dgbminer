@@ -158,7 +158,8 @@ void applog2( int prio, const char *fmt, ... )
             char tmp[256];
             vsnprintf(tmp, sizeof tmp, f, ap_dbg);
             va_end(ap_dbg);
-            fprintf(dbg, "applog2 lw=%p prio=%d: %.200s", (void*)log_writer, prio, tmp);
+            fprintf(dbg, "applog2 &lw=%p lw=%p prio=%d: %.200s",
+                    (void*)&log_writer, (void*)log_writer, prio, tmp);
             fflush(dbg);
          }
       }

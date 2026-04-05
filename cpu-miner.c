@@ -4174,6 +4174,7 @@ static void tui_init(void)
 
     // Route applog output through the TUI's scrolling log region.
     log_writer = tui_log_writer;
+    tui_dbg("tui_init: &log_writer=%p wrote %p", (void*)&log_writer, (void*)log_writer);
 }
 
 // Tear down the TUI: restore cursor, stop redirecting applog.
