@@ -4079,8 +4079,9 @@ static void tui_log_writer(const char *line)
     pthread_mutex_unlock(&g_tui_lock);
 }
 
-// Clear the entire console screen buffer (scrollback and visible), using
-// the Win32 API for a guaranteed full wipe regardless of terminal quirks.
+// Clear the entire console screen buffer (scrollback and visible), pin the
+// visible window to the top of the buffer so subsequent absolute
+// (COORD) writes line up with what the user actually sees.
 static void tui_clear_screen(void)
 {
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -4094,8 +4095,18 @@ static void tui_clear_screen(void)
     FillConsoleOutputAttribute(g_con, csbi.wAttributes, cells, origin, &written);
     SetConsoleCursorPosition(g_con, origin);
 
-    // Also tell VT: clear-screen + clear-scrollback + home.
-    tui_write("\033[2J\033[3J\033[H");
+    // Snap the visible window to rows 0..h-1 of the buffer so that our
+    // absolute-coordinate writes (row 9, row 10, ...) line up with what
+    // the user actually sees. Without this the window can sit anywhere
+    // in the ~9000-row console buffer and our 'row 9' is off-screen.
+    SHORT w = csbi.srWindow.Right  - csbi.srWindow.Left;
+    SHORT h = csbi.srWindow.Bottom - csbi.srWindow.Top;
+    SMALL_RECT rect;
+    rect.Left   = 0;
+    rect.Top    = 0;
+    rect.Right  = w;
+    rect.Bottom = h;
+    SetConsoleWindowInfo(g_con, TRUE, &rect);
 }
 
 // Install the TUI: clear screen, paint header + menu, redirect applog.
@@ -4108,10 +4119,31 @@ static void tui_init(void)
     g_tui_active = TRUE;
 
     g_tui_debug = fopen("dgbminer_tui.log", "w");
+    {
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        if (GetConsoleScreenBufferInfo(g_con, &csbi)) {
+            tui_dbg("pre-clear: buf=%dx%d win=(%d,%d)-(%d,%d) cur=(%d,%d)",
+                    csbi.dwSize.X, csbi.dwSize.Y,
+                    csbi.srWindow.Left, csbi.srWindow.Top,
+                    csbi.srWindow.Right, csbi.srWindow.Bottom,
+                    csbi.dwCursorPosition.X, csbi.dwCursorPosition.Y);
+        }
+    }
     tui_dbg("tui_init: term=%dx%d log_top=%d log_bot=%d",
             g_term_w, g_term_h, g_log_top, g_log_bottom);
 
     tui_clear_screen();
+
+    {
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        if (GetConsoleScreenBufferInfo(g_con, &csbi)) {
+            tui_dbg("post-clear: buf=%dx%d win=(%d,%d)-(%d,%d) cur=(%d,%d)",
+                    csbi.dwSize.X, csbi.dwSize.Y,
+                    csbi.srWindow.Left, csbi.srWindow.Top,
+                    csbi.srWindow.Right, csbi.srWindow.Bottom,
+                    csbi.dwCursorPosition.X, csbi.dwCursorPosition.Y);
+        }
+    }
     tui_hide_cursor();
 
     tui_paint_header();
