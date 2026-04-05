@@ -62,3 +62,9 @@ int ma_take_warning_slot(void)
     s_warned_once = 1;
     return 1;
 }
+
+static int s_disconnected = 0;
+
+void ma_rpc_failed(void)      { s_disconnected = 1; }
+void ma_rpc_ok(void)          { s_disconnected = 0; }
+int  ma_is_disconnected(void) { return s_disconnected; }

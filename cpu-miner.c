@@ -1639,6 +1639,7 @@ start:
       applog( LOG_ERR, "No usable protocol" );
       if ( val )
          json_decref( val );
+      ma_rpc_failed();
       return FALSE;
    }
 
@@ -1650,7 +1651,10 @@ start:
    }
 
    if ( !val )
+   {
+      ma_rpc_failed();
       return FALSE;
+   }
 
    if ( have_gbt )
    {
@@ -1729,6 +1733,7 @@ start:
       }
    }  // rc
 
+   if ( rc ) ma_rpc_ok(); else ma_rpc_failed();
    return rc;
 }
 
@@ -3914,14 +3919,21 @@ static void tui_paint_header(void)
            "================================================================================"
            CL_WHT);
 
-    // Row 1: title
+    // Row 1: title + RPC connection state + log level
     tui_goto(0, 1);
     tui_clear_row(1);
-    tui_writef(" " CL_GRN "dgbminer for Windows 1.1" CL_WHT
-           " - DigiByte CPU miner (testnet)         "
-           "Level: %s%s" CL_WHT,
-           opt_debug ? CL_YL2 : CL_GR2,
-           opt_debug ? "DEBUG" : "INFO ");
+    {
+        const char *rpc_col = ma_is_disconnected() ? CL_RED : CL_GR2;
+        const char *rpc_txt = ma_is_disconnected() ? "DISCONNECTED"
+                                                   : "CONNECTED   ";
+        tui_writef(" " CL_GRN "dgbminer for Windows 1.1" CL_WHT
+               " - DigiByte (testnet)   "
+               "RPC: %s%s" CL_WHT "   "
+               "Level: %s%s" CL_WHT,
+               rpc_col, rpc_txt,
+               opt_debug ? CL_YL2 : CL_GR2,
+               opt_debug ? "DEBUG" : "INFO ");
+    }
 
     // Row 2: credit line
     tui_goto(0, 2);
