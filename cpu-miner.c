@@ -83,13 +83,6 @@ BOOL  opt_debug = FALSE;
 BOOL  opt_debug_diff = FALSE;
 BOOL  opt_protocol = FALSE;
 BOOL  opt_benchmark = FALSE;
-
-// DGB MultiAlgo + connection state, populated by the workio thread and
-// read (non-atomically; values are tiny and stale reads are acceptable)
-// by the TUI header paint.
-char g_block_algo[16]   = {0};   // algo the node wants for the next block
-int  g_algo_mismatch    = 0;     // non-zero when our -a differs from g_block_algo
-int  g_rpc_failures     = 0;     // consecutive RPC-call failures (0 = connected)
 BOOL  opt_redirect = TRUE;
 BOOL  opt_extranonce = TRUE;
 BOOL  want_longpoll = FALSE;
@@ -604,25 +597,6 @@ static BOOL  gbt_work_decode( const json_t *val, struct work *work )
       goto out;
    }
    work->height = (int) json_integer_value( tmp );
-
-   // DGB MultiAlgo: each block expects a specific PoW algorithm.
-   // Extract it so we can warn / refuse to submit when the user's
-   // -a flag doesn't match what digibyted wants for this block.
-   {
-      json_t *pa = json_object_get( val, "pow_algo" );
-      if ( pa && json_is_string( pa ) )
-      {
-         const char *expected = json_string_value( pa );
-         if ( expected && algo_names[opt_algo] )
-         {
-            extern char g_block_algo[16];
-            extern int  g_algo_mismatch;
-            strncpy( g_block_algo, expected, sizeof g_block_algo - 1 );
-            g_block_algo[sizeof g_block_algo - 1] = 0;
-            g_algo_mismatch = strcasecmp( expected, algo_names[opt_algo] ) != 0;
-         }
-      }
-   }
 
    tmp = json_object_get(val, "version");
    if ( !tmp || !json_is_integer( tmp ) )
@@ -1778,7 +1752,6 @@ static BOOL  workio_get_work( struct workio_cmd *wc, CURL *curl )
    /* obtain new work from bitcoin via JSON-RPC */
    while ( !get_upstream_work( curl, work_heap ) )
    {
-      g_rpc_failures++;  // TUI header reads this for DISCONNECTED indicator
       if ( unlikely( ( opt_retries >= 0 ) && ( ++failures > opt_retries ) ) )
       {
          applog( LOG_ERR, "json_rpc_call failed, terminating workio thread" );
@@ -1791,7 +1764,6 @@ static BOOL  workio_get_work( struct workio_cmd *wc, CURL *curl )
               opt_fail_pause );
       sleep( opt_fail_pause );
    }
-   g_rpc_failures = 0;  // reset once work comes through
 
    /* send work to requesting thread */
    if ( !tq_push(wc->thr->q, work_heap ) )
@@ -1958,24 +1930,6 @@ BOOL  submit_solution( struct work *work, const void *hash,
 // Job went stale during hashing of a valid share.
 //   if ( !opt_quiet && work_restart[ thr->id ].restart )
 //      applog( LOG_INFO, CL_LBL "Share may be stale, submitting anyway..." CL_N );
-
-   // DGB MultiAlgo: if digibyted told us this block wants a different
-   // algorithm than the one we were launched with, don't waste an RPC
-   // round-trip on a share that will come back as 'high-hash'. Log once
-   // per event so the user understands why they're not seeing accepts.
-   if ( g_algo_mismatch )
-   {
-      static int mismatch_logged = 0;
-      if ( !mismatch_logged )
-      {
-         applog( LOG_WARNING,
-                 "block wants '%s' but miner is running '%s' — skipping submit. "
-                 "Relaunch with -a %s to mine this algo.",
-                 g_block_algo, algo_names[opt_algo], g_block_algo );
-         mismatch_logged = 1;
-      }
-      return FALSE;
-   }
 
    work->sharediff = hash_to_diff( hash );
    if ( likely( submit_work( thr, work ) ) )
@@ -2941,7 +2895,7 @@ static void show_credits()
    printf("\n");
    printf("  +----------------------------------------------+\n");
    printf("  |                                              |\n");
-   printf("  |   dgbminer for Windows  1.1                  |\n");
+   printf("  |   dgbminer for Windows  1.0                  |\n");
    printf("  |   A DigiByte-optimized CPU miner             |\n");
    printf("  |                                              |\n");
    printf("  |   Algos: sha256d, scrypt, skein, qubit, odo  |\n");
@@ -3941,7 +3895,7 @@ static void tui_paint_header(void)
     // Row 1: title
     tui_goto(0, 1);
     tui_clear_row(1);
-    tui_writef(" " CL_GRN "dgbminer for Windows 1.1" CL_WHT
+    tui_writef(" " CL_GRN "dgbminer for Windows 1.0" CL_WHT
            " - DigiByte CPU miner (testnet)         "
            "Level: %s%s" CL_WHT,
            opt_debug ? CL_YL2 : CL_GR2,
@@ -4108,9 +4062,6 @@ static void tui_log_writer(const char *line)
     size_t len = strlen(line);
     char buf[2048];
     size_t copy = (len > 0 && line[len-1] == '\n') ? len - 1 : len;
-
-    tui_dbg("LOG_IN count=%d active=%d hooked=%d: %.80s",
-            g_log_count + 1, g_tui_active, tui_log_hooked, line);
 
     if (!g_tui_active) {
         tui_write(line);
@@ -4284,12 +4235,7 @@ static void *keyboard_watcher_thread(void *arg)
 
 // Backwards-compat wrappers so the rest of cpu-miner.c that already
 // calls paint_status_header() / reset_status_region() still works.
-static void paint_status_header(void) {
-    if (!g_tui_active) return;
-    pthread_mutex_lock(&g_tui_lock);
-    tui_paint_header();
-    pthread_mutex_unlock(&g_tui_lock);
-}
+static void paint_status_header(void) { if (g_tui_active) tui_paint_header(); }
 static void reset_status_region(void) { tui_shutdown(); }
 #define setup_status_region() tui_init()
 
@@ -4383,7 +4329,7 @@ int main(int argc, char *argv[])
    // need to register to get algo optimizations for cpu capabilities
    // but that causes registration logs before cpu capabilities is output.
    // Would need to split register function into 2 parts. First part sets algo
-   // optimizations but no logging, second part does any logging.
+   // optimizations but no logging, second part does any logging.   
    if ( !register_algo_gate( opt_algo, &algo_gate ) )  exit(1);
 
    if ( !check_cpu_capability() ) exit(1);
