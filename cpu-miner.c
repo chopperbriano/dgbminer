@@ -4126,6 +4126,8 @@ static void tui_init(void)
     g_log_count = 0;
     g_tui_active = TRUE;
 
+    SetConsoleTitleA("dgbminer for Windows");
+
     g_tui_debug = fopen("dgbminer_tui.log", "w");
     {
         CONSOLE_SCREEN_BUFFER_INFO csbi;
