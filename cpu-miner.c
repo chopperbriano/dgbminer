@@ -3840,7 +3840,8 @@ static void tui_query_size(void)
     if (g_term_h < TUI_HEADER_ROWS + TUI_MENU_ROWS + 2) g_term_h = TUI_HEADER_ROWS + TUI_MENU_ROWS + 2;
     if (g_term_w < 40) g_term_w = 40;
     g_log_top    = TUI_HEADER_ROWS;
-    g_log_bottom = g_term_h - TUI_MENU_ROWS - 1;
+    // Leave one blank spacer row between the log region and the menu.
+    g_log_bottom = g_term_h - TUI_MENU_ROWS - 2;
 }
 
 // Scroll the log region up by one row, blanking the new bottom row.
