@@ -57,6 +57,9 @@ set(DGB_SOURCES
     compat/winansi.c
     compat/legacy_iob.c
 
+    # Windows resource (app icon + version metadata)
+    res/cpuminer.rc
+
     # Jansson (JSON) built from bundled source — the jansson.lib in
     # compat/lib is an import lib requiring jansson.dll at runtime.
     compat/jansson/dump.c
