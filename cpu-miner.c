@@ -4129,6 +4129,9 @@ static void tui_log_writer(const char *line)
     char buf[2048];
     size_t copy = (len > 0 && line[len-1] == '\n') ? len - 1 : len;
 
+    tui_dbg("LOG_IN count=%d active=%d hooked=%d: %.80s",
+            g_log_count + 1, g_tui_active, tui_log_hooked, line);
+
     if (!g_tui_active) {
         tui_write(line);
         return;
@@ -4301,7 +4304,12 @@ static void *keyboard_watcher_thread(void *arg)
 
 // Backwards-compat wrappers so the rest of cpu-miner.c that already
 // calls paint_status_header() / reset_status_region() still works.
-static void paint_status_header(void) { if (g_tui_active) tui_paint_header(); }
+static void paint_status_header(void) {
+    if (!g_tui_active) return;
+    pthread_mutex_lock(&g_tui_lock);
+    tui_paint_header();
+    pthread_mutex_unlock(&g_tui_lock);
+}
 static void reset_status_region(void) { tui_shutdown(); }
 #define setup_status_region() tui_init()
 
