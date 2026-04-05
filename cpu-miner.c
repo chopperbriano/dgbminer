@@ -4173,8 +4173,18 @@ static void tui_init(void)
     tui_goto(0, g_log_top);
 
     // Route applog output through the TUI's scrolling log region.
+    // Two mechanisms for redundancy: the function pointer and the flag.
     log_writer = tui_log_writer;
-    tui_dbg("tui_init: &log_writer=%p wrote %p", (void*)&log_writer, (void*)log_writer);
+    tui_log_hooked = 1;
+    tui_dbg("tui_init: &log_writer=%p wrote %p hooked=%d",
+            (void*)&log_writer, (void*)log_writer, tui_log_hooked);
+}
+
+// Called from util.c applog/applog2 via extern declaration. Avoids the
+// function-pointer corruption that was happening with log_writer.
+void tui_log_write(const char *line)
+{
+    tui_log_writer(line);
 }
 
 // Tear down the TUI: restore cursor, stop redirecting applog.
@@ -4184,6 +4194,7 @@ static void tui_shutdown(void)
     tui_dbg("SHUTDOWN CALLED!  active=%d log_writer=%p",
             g_tui_active, (void*)log_writer);
     g_tui_active = FALSE;
+    tui_log_hooked = 0;
     log_writer = NULL;
     tui_show_cursor();
     tui_goto(0, (SHORT)(g_term_h - 1));

@@ -163,10 +163,10 @@ void applog2( int prio, const char *fmt, ... )
             fflush(dbg);
          }
       }
-      if (log_writer) {
+      if (tui_log_hooked) {
          char buf[2048];
          vsnprintf(buf, sizeof buf, f, ap);
-         log_writer(buf);
+         tui_log_write(buf);
       } else {
          pthread_mutex_lock(&applog_lock);
          vfprintf(stdout, f, ap);   /* atomic write to stdout */
@@ -247,10 +247,10 @@ void applog(int prio, const char *fmt, ...)
 			fmt,
 			use_colors ? CL_N : ""
 		);
-		if (log_writer) {
+		if (tui_log_hooked) {
 			char buf[2048];
 			vsnprintf(buf, sizeof buf, f, ap);
-			log_writer(buf);
+			tui_log_write(buf);
 		} else {
 			pthread_mutex_lock(&applog_lock);
 			vfprintf(stdout, f, ap);	/* atomic write to stdout */
@@ -263,6 +263,7 @@ void applog(int prio, const char *fmt, ...)
 }
 
 void (* volatile log_writer)(const char *line) = NULL;
+volatile int tui_log_hooked = 0;
 
 void log_sw_err( char* filename, int line_number, char* msg )
 {

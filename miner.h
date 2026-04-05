@@ -396,6 +396,14 @@ void   applog2(int prio, const char *fmt, ...);
 // log region). When NULL, log lines go to stdout normally.
 extern void (* volatile log_writer)(const char *line);
 
+// Parallel flag + extern function path: log_writer_hooked becomes 1
+// when the TUI is installed and stays 1 until teardown. tui_log_write
+// is defined in cpu-miner.c. This sidesteps a bug where the function-
+// pointer value of log_writer is getting zeroed by something between
+// applog2 calls.
+extern volatile int tui_log_hooked;
+void tui_log_write(const char *line);  /* provided by cpu-miner.c */
+
 void   restart_threads(void);
 extern json_t *json_rpc_call( CURL *curl, const char *url, const char *userpass,
                 	const char *rpc_req, int *curl_err, int flags );
